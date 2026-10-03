@@ -22,6 +22,8 @@ static func build(id: String, root: Node3D) -> Dictionary:
 			info = _locals(region)
 		"mall":
 			info = _mall(region)
+		"pizza":
+			info = _pizza(region)
 		_:
 			info = _playground(region)
 	var half: float = info["half"]
@@ -278,3 +280,118 @@ static func _mall(root: Node3D) -> Dictionary:
 		],
 		"parent_spawns": [Vector3(-23, 0.1, 0), Vector3(23, 0.1, 0), Vector3(0, 0.1, -21), Vector3(0, 0.1, 21)],
 	}
+
+
+# --- Pizza Party Palace -------------------------------------------------------
+
+static func _pizza(root: Node3D) -> Dictionary:
+	var half := 24.0
+	_ground(root, 100, Color(0.55, 0.15, 0.15))
+	_perimeter(root, half, 5.0, Color(0.3, 0.22, 0.55))
+	# Checkerboard party floor.
+	for x in range(-24, 24, 3):
+		for z in range(-24, 24, 3):
+			if posmod(int((x + z) / 3.0), 2) == 0:
+				Shapes.box(root, Vector3(3, 0.02, 3), Vector3(x + 1.5, 0.01, z + 1.5), Color(0.95, 0.8, 0.2))
+
+	# Stage with the animatronic band (north).
+	Shapes.solid_box(root, Vector3(12, 0.6, 4), Vector3(0, 0.3, -21.5), Color(0.45, 0.2, 0.1))
+	for i in 3:
+		var x := -4.0 + i * 4.0
+		var bot := Shapes.solid_cylinder(root, 0.5, 1.6, Vector3(x, 1.4, -21.5), Color.from_hsv(i * 0.3, 0.6, 0.8))
+		Shapes.sphere(bot, 0.45, Vector3(0, 1.1, 0), Color.from_hsv(i * 0.3, 0.5, 0.9))
+	_sign(root, "PIZZA PARTY PALACE", Vector3(0, 4.2, -23.6), Color(1, 0.85, 0.2), 170)
+	_sign(root, "HAPPY BIRTHDAY TYLER!!", Vector3(0, 3.3, -23.6), Color(1, 0.4, 0.8), 110)
+
+	# Party tables with pizzas and party hats (center).
+	for z in [-15.0, -10.5, -6.0]:
+		Shapes.solid_box(root, Vector3(9, 0.8, 1.6), Vector3(0, 0.4, z), Color(0.9, 0.9, 0.95))
+		for x in [-3.0, 0.0, 3.0]:
+			Shapes.cylinder(root, 0.45, 0.04, Vector3(x, 0.83, z), Color(0.95, 0.65, 0.2))
+			var hat := Shapes.cylinder(root, 0.12, 0.3, Vector3(x + 0.8, 0.95, z + 0.4), Color.from_hsv(randf(), 0.7, 0.9))
+			(hat.mesh as CylinderMesh).top_radius = 0.0
+
+	# Arcade cabinets (east), glowing screens.
+	for row in 3:
+		for i in 4:
+			var pos := Vector3(9.5 + row * 4.0, 0, -4.0 + i * 3.2)
+			Shapes.solid_box(root, Vector3(1.1, 2.0, 1.0), pos + Vector3(0, 1.0, 0), Color(0.12, 0.12, 0.18))
+			var glow := Shapes.mat(Color.from_hsv(randf(), 0.8, 1.0), 2.0)
+			for side in [-1.0, 1.0]:
+				var screen := Shapes.box(root, Vector3(0.85, 0.6, 0.05), pos + Vector3(0, 1.45, side * 0.52), Color.WHITE)
+				screen.material_override = glow
+			var marquee := Shapes.box(root, Vector3(1.12, 0.25, 1.02), pos + Vector3(0, 2.12, 0), Color.WHITE)
+			marquee.material_override = Shapes.mat(Color.from_hsv(randf(), 0.6, 1.0), 1.5)
+	_sign(root, "ARCADE", Vector3(13.5, 3.2, -6.5), Color(0.4, 1, 1), 120)
+
+	# Prize counter (southeast).
+	Shapes.solid_box(root, Vector3(8, 1.1, 1.2), Vector3(14, 0.55, 17), Color(0.6, 0.15, 0.6))
+	for i in 10:
+		Shapes.sphere(root, 0.25, Vector3(10.6 + i * 0.75, 1.35, 17), Color.from_hsv(randf(), 0.6, 1.0))
+	_sign(root, "PRIZES  (500 tickets)", Vector3(14, 2.6, 17.65), Color(1, 1, 0.5), 80, PI)
+
+	# Kitchen half-wall (northeast), back door extract behind it.
+	Shapes.solid_box(root, Vector3(0.4, 2.2, 8), Vector3(16.5, 1.1, -18), Color(0.85, 0.85, 0.85))
+	Shapes.solid_box(root, Vector3(3, 1.0, 1.0), Vector3(20, 0.5, -14.5), Color(0.6, 0.6, 0.65))
+	_sign(root, "KITCHEN", Vector3(16.3, 2.6, -18), Color(1, 1, 1), 80, -PI / 2)
+
+	# The ball pit (west): knee-high walls with gaps, hundreds of balls, a slide tower.
+	var pit := AABB(Vector3(-21, -1, -12), Vector3(12, 3, 16))
+	var wall_col := Color(0.2, 0.6, 1.0)
+	Shapes.solid_box(root, Vector3(12, 0.5, 0.3), Vector3(-15, 0.25, -12), wall_col)
+	Shapes.solid_box(root, Vector3(12, 0.5, 0.3), Vector3(-15, 0.25, 4), wall_col)
+	Shapes.solid_box(root, Vector3(0.3, 0.5, 5.5), Vector3(-9, 0.25, -9.25), wall_col)
+	Shapes.solid_box(root, Vector3(0.3, 0.5, 5.5), Vector3(-9, 0.25, 1.25), wall_col)
+	_ball_pit_balls(root, pit)
+	Shapes.solid_box(root, Vector3(2, 3.2, 2), Vector3(-19, 1.6, -10), Color(1.0, 0.5, 0.1))
+	Shapes.box(root, Vector3(1.2, 0.15, 4.5), Vector3(-17.2, 1.6, -7.6), Color(0.95, 0.2, 0.3)).rotation.x = deg_to_rad(-35)
+	_sign(root, "BALL PIT", Vector3(-15, 2.8, 4.2), Color(0.5, 0.9, 1.0), 120)
+
+	# Parking-lot exit doors (southwest).
+	Shapes.box(root, Vector3(3, 2.6, 0.2), Vector3(-19, 1.3, 23.7), Color(0.4, 0.5, 0.6))
+	_sign(root, "EXIT", Vector3(-19, 3.0, 23.6), Color(1, 0.3, 0.3), 100, PI)
+
+	return {
+		"half": half,
+		"patrol": [Vector3(0, 0, 0), Vector3(6, 0, -12), Vector3(14, 0, 8), Vector3(4, 0, 18), Vector3(-6, 0, 10), Vector3(-6, 0, -18)],
+		"pois": [Vector3(-3, 0, -13), Vector3(3, 0, -8.3), Vector3(0, 0, -18.5), Vector3(11.5, 0, -2), Vector3(15.5, 0, 4),
+			Vector3(14, 0, 15.5), Vector3(-15, 0, -4), Vector3(-12, 0, 0), Vector3(-4, 0, 12)],
+		"spawn": Vector3(0, 0.1, 20), "spawn_yaw": 0.0,
+		"kid_bounds": Rect2(-20, -19, 40, 37),
+		"extracts": [
+			{"name": "Kitchen Back Door", "pos": Vector3(20.5, 0, -19)},
+			{"name": "Parking Lot", "pos": Vector3(-19, 0, 21)},
+			{"name": "Ball Pit Slide", "pos": Vector3(-17, 0, -6)},
+		],
+		"parent_spawns": [Vector3(0, 0.1, 22), Vector3(21, 0.1, -10), Vector3(-21, 0.1, 18), Vector3(21, 0.1, 21)],
+		"ball_pits": [pit],
+	}
+
+
+static func _ball_pit_balls(root: Node3D, pit: AABB) -> void:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	var ball := SphereMesh.new()
+	ball.radius = 0.16
+	ball.height = 0.32
+	ball.radial_segments = 8
+	ball.rings = 4
+	mm.mesh = ball
+	mm.instance_count = 420
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1337
+	var palette := [Color(1, 0.2, 0.2), Color(0.2, 0.5, 1), Color(1, 0.85, 0.1), Color(0.2, 0.85, 0.3), Color(0.9, 0.3, 0.9)]
+	for i in mm.instance_count:
+		var pos := Vector3(rng.randf_range(pit.position.x + 0.3, pit.end.x - 0.3), rng.randf_range(0.12, 0.55),
+			rng.randf_range(pit.position.z + 0.3, pit.end.z - 0.3))
+		mm.set_instance_transform(i, Transform3D(Basis(), pos))
+		mm.set_instance_color(i, palette[i % palette.size()])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	var m := StandardMaterial3D.new()
+	m.vertex_color_use_as_albedo = true
+	m.roughness = 0.4
+	mmi.material_override = m
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(mmi)

@@ -35,10 +35,42 @@ const LOCATIONS := {
 	"locals": {"name": "Friday Night Locals @ Dragon's Den", "fee": 15, "time": 300.0, "kids": 10, "rarity_bonus": 1.2,
 		"heat_floor": 1, "guard": "owner", "difficulty": 2,
 		"desc": "The weekly tournament. Fat binders full of holos. Gary the store owner is watching."},
+	"pizza": {"name": "Pizza Party Palace", "fee": 25, "time": 300.0, "kids": 12, "rarity_bonus": 1.6,
+		"heat_floor": 1, "guard": "cheesy", "difficulty": 2,
+		"desc": "A birthday bash with arcade cabinets and a giant ball pit: dive in to vanish from grown-ups. Cheesy the Rat keeps order."},
 	"mall": {"name": "Galleria Mall Food Court", "fee": 40, "time": 300.0, "kids": 11, "rarity_bonus": 2.5,
 		"heat_floor": 2, "guard": "cop", "difficulty": 3,
 		"desc": "Rich kids with Legendaries. Mall cops on patrol, gym coaches on speed dial."},
 }
+
+## One modifier is rolled per raid. Effects are read through mod(key, default).
+const RAID_MODIFIERS := {
+	"bake_sale": {"name": "Bake Sale", "desc": "Adults are distracted by brownies (-30% sight range)", "sight": 0.7},
+	"report_card": {"name": "Report Card Day", "desc": "Everyone's on edge (heat cools down 50% slower)", "heat_decay": 0.5},
+	"free_refills": {"name": "Free Refills", "desc": "Sugar rush! Kids show up twice as fast", "kid_respawn": 0.5},
+	"holo_hype": {"name": "Holo Hype", "desc": "A new set just dropped: Rare+ cards everywhere", "rarity_bonus": 1.0},
+}
+
+## Scam tactics, in trade-screen order. base = odds before upgrades and penalties.
+## gentle = no heat and no crying even on failure (the kid just gets wary).
+const TACTICS := [
+	{"id": "junk", "label": "Offer a \"super rare\" junk card", "base": 0.6, "heat": 8.0, "cry": 0.25,
+		"junk_cost": 1, "sticker_cost": 0, "gentle": false, "cost_text": "Costs 1 junk card  ·  low heat"},
+	{"id": "sticker", "label": "Holo-sticker forgery", "base": 0.9, "heat": 4.0, "cry": 0.1,
+		"junk_cost": 1, "sticker_cost": 1, "gentle": false, "cost_text": "Costs 1 junk + 1 sticker  ·  barely any heat"},
+	{"id": "bundle", "label": "Bundle Deal (\"three for one, bro!\")", "base": 0.8, "heat": 5.0, "cry": 0.15,
+		"junk_cost": 3, "sticker_cost": 0, "gentle": false, "cost_text": "Costs 3 junk cards  ·  low heat"},
+	{"id": "sob", "label": "Sob Story (\"my dog ate my deck...\")", "base": 0.35, "heat": 0.0, "cry": 0.0,
+		"junk_cost": 0, "sticker_cost": 0, "gentle": true, "cost_text": "Free  ·  no heat  ·  never cries"},
+	{"id": "ufo", "label": "\"Whoa, is that a UFO?!\" (swipe it)", "base": 0.75, "heat": 22.0, "cry": 1.0,
+		"junk_cost": 0, "sticker_cost": 0, "gentle": false, "cost_text": "Free  ·  the kid WILL cry  ·  high heat"},
+]
+
+## Collector orders: reward multiplier over expected sell value, and the guaranteed floor.
+const ORDER_COUNT := 3
+const ORDER_REWARD_MULT := 1.6
+const ORDER_MIN_MULT := 1.5
+const ORDER_NAME_FLOOR := 40
 
 const UPGRADES := {
 	"tongue": {"name": "Silver Tongue", "desc": "+8% scam success", "base": 40, "max": 5},
@@ -88,6 +120,7 @@ const MOVEMENT := {
 	"slide_friction": 1.4, "slide_min_speed": 2.5,
 	"max_speed": 12.0, "jump_velocity": 6.2,
 	"noise_crouch": 0.35, "noise_run": 0.8, "noise_sprint": 1.0,
+	"ball_pit_speed": 2.5,  # speed cap inside ball pits (Pizza Party Palace)
 }
 
 const JUNK_PACK_COST := 5
@@ -111,6 +144,7 @@ var sand: int             # pocket sand packets, carried like supplies
 var upgrades: Dictionary
 var weapons_owned: Dictionary
 var weapon_id: String
+var orders: Array        # collector orders (see roll_orders)
 var raids: int
 var extracts: int
 var scams: int
@@ -119,6 +153,7 @@ var won: bool
 
 # Raid (at risk)
 var location_id := ""
+var raid_modifier := ""
 var binder: Array
 var health: float
 var stamina: float
@@ -151,7 +186,9 @@ func reset() -> void:
 	knockouts = 0
 	won = false
 	location_id = ""
+	raid_modifier = ""
 	binder = []
+	roll_orders()
 	heat = 0.0
 	health = max_health()
 	stamina = max_stamina()
@@ -399,6 +436,103 @@ func say(text: String, color := Color.WHITE) -> void:
 	message.emit(text, color)
 
 
+# --- Raid modifiers ----------------------------------------------------------
+
+func roll_raid_modifier() -> String:
+	var ids := RAID_MODIFIERS.keys()
+	raid_modifier = ids[randi() % ids.size()]
+	return raid_modifier
+
+## Value of the active modifier's effect key, or default when no modifier sets it.
+func mod(key: String, default: float) -> float:
+	if raid_modifier == "" or not RAID_MODIFIERS.has(raid_modifier):
+		return default
+	return RAID_MODIFIERS[raid_modifier].get(key, default)
+
+
+# --- Collector orders --------------------------------------------------------
+
+func _ceil5(x: float) -> int:
+	return int(ceil(x / 5.0)) * 5
+
+func _rarity_avg(r: int) -> float:
+	return (RARITIES[r]["min"] + RARITIES[r]["max"]) * 0.5
+
+func roll_orders() -> void:
+	orders = []
+	for i in ORDER_COUNT:
+		orders.append(_roll_order())
+
+func _roll_order() -> Dictionary:
+	if randf() < 0.3:
+		var n: String = CARD_NAMES[randi() % CARD_NAMES.size()]
+		var reward := maxi(_ceil5(_rarity_avg(1) * sell_mult() * ORDER_REWARD_MULT), ORDER_NAME_FLOOR)
+		return {"kind": "name", "card_name": n, "rarity": 0, "count": 1, "reward": reward,
+			"title": "Deliver any \"%s\"" % n, "filled": false}
+	var r: int = [2, 2, 3, 3, 4][randi() % 5]
+	var count: int = {2: randi_range(1, 3), 3: randi_range(1, 2), 4: 1}[r]
+	var reward := _ceil5(_rarity_avg(r) * count * sell_mult() * ORDER_REWARD_MULT)
+	return {"kind": "rarity", "rarity": r, "count": count, "card_name": "", "reward": reward,
+		"title": "Deliver %d %s+ card%s" % [count, RARITIES[r]["name"], "s" if count > 1 else ""], "filled": false}
+
+func _order_qualifies(order: Dictionary, card: Dictionary) -> bool:
+	if order["kind"] == "name":
+		return card["name"] == order["card_name"]
+	return card["rarity"] >= order["rarity"]
+
+## Stash indices of the cheapest cards that fill this order, or [] if it can't be filled.
+func order_matches(order: Dictionary) -> Array:
+	if order.get("filled", false):
+		return []
+	var idx := []
+	for i in stash.size():
+		if _order_qualifies(order, stash[i]):
+			idx.append(i)
+	idx.sort_custom(func(a, b): return card_sell_value(stash[a]) < card_sell_value(stash[b]))
+	if idx.size() < order["count"]:
+		return []
+	return idx.slice(0, order["count"])
+
+func order_have(order: Dictionary) -> int:
+	var n := 0
+	for c in stash:
+		if _order_qualifies(order, c):
+			n += 1
+	return mini(n, order["count"])
+
+func order_payout(order: Dictionary) -> int:
+	var removed := 0
+	for i in order_matches(order):
+		removed += card_sell_value(stash[i])
+	return maxi(order["reward"], _ceil5(removed * ORDER_MIN_MULT))
+
+## Fulfills order i from the stash. Returns the cash paid (0 if it couldn't be filled).
+func fulfill_order(i: int) -> int:
+	if i < 0 or i >= orders.size():
+		return 0
+	var order: Dictionary = orders[i]
+	var idx := order_matches(order)
+	if idx.is_empty():
+		return 0
+	var pay := order_payout(order)
+	idx.sort()
+	idx.reverse()
+	for j in idx:
+		stash.remove_at(j)
+	cash += pay
+	order["filled"] = true
+	save_game()
+	changed.emit()
+	return pay
+
+func orders_ready() -> int:
+	var n := 0
+	for o in orders:
+		if not order_matches(o).is_empty():
+			n += 1
+	return n
+
+
 # --- Persistence -------------------------------------------------------------
 
 func has_save() -> bool:
@@ -406,7 +540,7 @@ func has_save() -> bool:
 
 func save_game() -> void:
 	var cfg := ConfigFile.new()
-	for key in ["cash", "stash", "junk", "stickers", "sand", "upgrades", "weapons_owned", "weapon_id",
+	for key in ["cash", "stash", "junk", "stickers", "sand", "orders", "upgrades", "weapons_owned", "weapon_id",
 			"raids", "extracts", "scams", "knockouts", "won"]:
 		cfg.set_value("meta", key, get(key))
 	cfg.save(SAVE_PATH)
@@ -430,6 +564,11 @@ func load_game() -> bool:
 			weapons_owned[k] = saved_w[k]
 	if not weapons_owned.get(weapon_id, false):
 		weapon_id = "knuckles"
+	var saved_orders: Array = cfg.get_value("meta", "orders", [])
+	if saved_orders.size() == ORDER_COUNT:
+		orders = saved_orders
+	else:
+		roll_orders()
 	health = max_health()
 	stamina = max_stamina()
 	changed.emit()

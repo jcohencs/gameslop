@@ -53,6 +53,7 @@ var jump_buffer := 0.0
 var was_on_floor := true
 var fall_speed := 0.0
 var sprinting := false
+var in_ball_pit := false         # set by main: slow + hidden (Pizza Party Palace)
 
 var run_speed: float
 var sprint_speed: float
@@ -72,6 +73,7 @@ var jump_velocity: float
 var noise_crouch: float
 var noise_run: float
 var noise_sprint: float
+var ball_pit_speed: float
 var last_attack_time := -10.0
 var noise := 0.0               # how far away parents can hear you (m)
 var interact_target: Node = null
@@ -125,6 +127,7 @@ func _load_movement_profile() -> void:
 	noise_crouch = m["noise_crouch"]
 	noise_run = m["noise_run"]
 	noise_sprint = m["noise_sprint"]
+	ball_pit_speed = m["ball_pit_speed"]
 
 
 func _on_state_changed() -> void:
@@ -260,6 +263,10 @@ func _physics_process(delta: float) -> void:
 		_air_accelerate(wishdir, wishspeed, delta)
 
 	_clamp_speed()
+	if in_ball_pit:
+		var pit := Vector2(velocity.x, velocity.z).limit_length(ball_pit_speed)
+		velocity.x = pit.x
+		velocity.z = pit.y
 	move_and_slide()
 
 	# Landing.
@@ -289,6 +296,8 @@ func _physics_process(delta: float) -> void:
 	elif sprinting:
 		noise_k = noise_sprint
 	var target_noise := 2.0 + hs * noise_k
+	if in_ball_pit:
+		target_noise *= 0.5
 	if sliding:
 		target_noise += 3.0
 	if _time - last_attack_time < 1.0:

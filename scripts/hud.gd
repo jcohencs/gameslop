@@ -37,6 +37,7 @@ var compass: Control
 var status_label: Label
 var timer_label: Label
 var location_label: Label
+var modifier_label: Label
 var heat: HeatMeter
 var hp_bar: ProgressBar
 var hp_lag: ProgressBar
@@ -145,6 +146,10 @@ func _build_top() -> void:
 	tlv.add_child(location_label)
 	timer_label = UI.label("5:00", 34, UI.ACCENT, true)
 	tlv.add_child(timer_label)
+	modifier_label = UI.label("", 14, UI.INFO)
+	modifier_label.custom_minimum_size = Vector2(240, 0)
+	modifier_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tlv.add_child(modifier_label)
 
 	# Heat, top right.
 	var tr := UI.panel(0.6)
@@ -292,6 +297,9 @@ func refresh(delta: float, player: Node3D) -> void:
 		timer_label.modulate.a = 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.01)
 	if gs.location_id != "":
 		location_label.text = gs.LOCATIONS[gs.location_id]["name"].to_upper()
+	if gs.raid_modifier != "":
+		var m: Dictionary = gs.RAID_MODIFIERS[gs.raid_modifier]
+		modifier_label.text = "%s: %s" % [m["name"].to_upper(), m["desc"]]
 	heat.stars = gs.stars()
 
 	var mh := gs.max_health()

@@ -21,6 +21,7 @@ var state_timer := 0.0
 var bounds := Rect2(-24, -24, 48, 48)  # x/z wander area, set by the level
 var pois: Array = []                    # hangout spots, set by the level
 var rarity_bonus := 0.0
+var whale := false                      # one per raid: guaranteed Legendary, glows gold
 var wary := 0.0                         # > 0 after witnessing a scam
 var cheering := 0.0
 var label: Label3D
@@ -37,6 +38,10 @@ func _ready() -> void:
 	collision_mask = 1 | 2 | 4
 	kid_name = KID_NAMES[randi() % KID_NAMES.size()]
 	card = GameState.roll_card(rarity_bonus)
+	if whale:
+		var r: Dictionary = GameState.RARITIES[4]
+		card["rarity"] = 4
+		card["value"] = randi_range(r["min"], r["max"])
 	var opts := {"backpack": Color.from_hsv(randf(), 0.5, 0.6)}
 	if randf() < 0.5:
 		opts["hair"] = Color.from_hsv(randf_range(0.03, 0.12), 0.6, randf_range(0.15, 0.9))
@@ -56,8 +61,30 @@ func _ready() -> void:
 	agent.target_desired_distance = 0.6
 	add_child(agent)
 	label = Shapes.label(self, "", Vector3(0, 1.5, 0), Color.WHITE, 26)
+	if whale:
+		_add_whale_glow()
 	_refresh_label()
 	_pick_target()
+
+
+func _add_whale_glow() -> void:
+	var light := OmniLight3D.new()
+	light.light_color = Color(1.0, 0.8, 0.25)
+	light.light_energy = 1.6
+	light.omni_range = 3.0
+	light.position = Vector3(0, 1.0, 0)
+	add_child(light)
+	var halo := MeshInstance3D.new()
+	var ring := TorusMesh.new()
+	ring.inner_radius = 0.28
+	ring.outer_radius = 0.36
+	halo.mesh = ring
+	halo.material_override = Shapes.mat(Color(1.0, 0.8, 0.2), 3.0)
+	halo.position = Vector3(0, 1.95, 0)
+	add_child(halo)
+	var tw := halo.create_tween().set_loops()
+	tw.tween_property(halo, "position:y", 2.05, 0.6).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(halo, "position:y", 1.95, 0.6).set_trans(Tween.TRANS_SINE)
 
 
 func can_trade() -> bool:
@@ -77,7 +104,8 @@ func _refresh_label() -> void:
 			label.modulate = Color(1, 0.8, 0.6)
 		_:
 			var w := "  (!) wary" if wary > 0.0 else ""
-			label.text = "%s%s\n[%s] %s" % [kid_name, w, GameState.rarity_name(card), card["name"]]
+			var who := "WHALE — %s" % kid_name if whale else kid_name
+			label.text = "%s%s\n[%s] %s" % [who, w, GameState.rarity_name(card), card["name"]]
 			label.modulate = GameState.rarity_color(card)
 
 

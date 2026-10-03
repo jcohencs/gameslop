@@ -6,9 +6,11 @@ extends CharacterBody3D
 enum State { PATROL, INVESTIGATE, SEARCH, CHASE, ENGAGE, WINDUP, RECOVER, STAGGER, FLEE, KO, BLINDED }
 
 const GRAVITY := 18.0
-const ATTACK_RANGE := 1.75
+const DEFAULT_REACH := 1.75     # per-type override: TYPES[...]["reach"]
 const ENGAGE_RANGE := 3.6
-const WINDUP_TIME := 0.5
+const DEFAULT_WINDUP := 0.5     # per-type override: TYPES[...]["windup"]
+const BALL_PIT_HIDE := 2.5      # beyond this, a player in a ball pit is invisible
+const PATROL_TOLERANCE_HEAT := 15.0  # patrollers ignore a "clean" player below this heat
 const RECOVER_TIME := 0.4
 const VIEW_RANGE := 24.0
 const VIEW_COS := 0.5            # ~60 degree half-angle
@@ -32,7 +34,17 @@ const TYPES := {
 		"shirt": Color(0.85, 0.15, 0.15), "pants": Color(0.15, 0.15, 0.6), "opts": {"cap": Color(0.85, 0.15, 0.15), "whistle": Color(0.95, 0.9, 0.2), "girth": 1.3},
 		"reward": [80, 150], "flee": 0.0,
 		"taunts": ["GIVE ME TWENTY, SCAMMER!", "*TWEEEEEET*", "DODGEBALL TIME!"]},
+	"nana": {"name": "Nana", "hp": 230.0, "speed": 3.6, "damage": 22.0, "attack_cd": 1.9, "height": 1.65,
+		"reach": 2.8, "windup": 0.8, "min_stars": 3,
+		"shirt": Color(0.7, 0.6, 0.9), "pants": Color(0.35, 0.3, 0.4), "opts": {"glasses": true, "hair": Color(0.85, 0.85, 0.88), "girth": 1.05},
+		"reward": [30, 70], "flee": 0.0,
+		"taunts": ["In MY day we earned our cards!", "Wait 'til I get my cane on you!", "You're grounded, mister!"]},
 	# Patrolling guards: they watch for scams instead of showing up angry.
+	"cheesy": {"name": "Cheesy the Rat", "hp": 170.0, "speed": 5.0, "damage": 15.0, "attack_cd": 1.2, "height": 2.1,
+		"shirt": Color(0.55, 0.55, 0.6), "pants": Color(0.5, 0.5, 0.55),
+		"opts": {"ears": Color(0.55, 0.55, 0.6), "party_hat": Color(1.0, 0.3, 0.6), "girth": 1.35, "shoes": Color(0.95, 0.85, 0.2)},
+		"reward": [45, 85], "flee": 0.0, "guard": true,
+		"taunts": ["Hey kids! It's CHEESY! ...and YOU.", "No scamming at the party, pal!", "*squeaky mascot noises*"]},
 	"monitor": {"name": "Recess Monitor", "hp": 90.0, "speed": 5.2, "damage": 10.0, "attack_cd": 1.1, "height": 1.8,
 		"shirt": Color(1.0, 0.55, 0.1), "pants": Color(0.3, 0.3, 0.35), "opts": {"whistle": Color(0.9, 0.9, 0.9), "hair": Color(0.25, 0.15, 0.1)},
 		"reward": [20, 35], "flee": 0.0, "guard": true,
@@ -49,6 +61,9 @@ const TYPES := {
 
 var kind: String = "dad"
 var data: Dictionary
+var reach := DEFAULT_REACH
+var windup_time := DEFAULT_WINDUP
+var whale_kid: Node = null       # chaperones shadow their whale
 var hp: float
 var radius: float
 var player: Node3D
@@ -110,11 +125,17 @@ func _ready() -> void:
 	hp = data["hp"]
 	var h: float = data["height"]
 	radius = h * 0.17
+	reach = data.get("reach", DEFAULT_REACH)
+	windup_time = data.get("windup", DEFAULT_WINDUP)
 	var opts: Dictionary = data["opts"].duplicate()
 	opts["brows"] = Color(0.2, 0.1, 0.05)
 	rig = Rig.new()
 	add_child(rig)
 	rig.build(h, data["shirt"], data["pants"], Color(0.95, 0.78, 0.62).darkened(randf() * 0.4), opts)
+	if kind == "nana":
+		# Her trusty cane.
+		var cane := Shapes.cylinder(rig.hand_r, h * 0.015, h * 0.55, Vector3(0, -h * 0.2, -h * 0.05), Color(0.4, 0.25, 0.12))
+		cane.rotation.x = 0.3
 	Shapes.capsule_collider(self, h, radius)
 
 	agent = NavigationAgent3D.new()
@@ -197,7 +218,7 @@ func _set_state(s: State) -> void:
 	state_t = 0.0
 	match s:
 		State.WINDUP:
-			rig.play("windup", WINDUP_TIME + 0.05, 0.12)
+			rig.play("windup", windup_time + 0.05, 0.12)
 		State.STAGGER:
 			rig.play("dazed", stun_timer, 0.08)
 		State.BLINDED:
@@ -226,8 +247,10 @@ func _can_see_player() -> bool:
 	var to: Vector3 = player.global_position - global_position
 	var dist := to.length()
 	var alert := state in [State.CHASE, State.ENGAGE, State.WINDUP, State.RECOVER]
-	var range_m := VIEW_RANGE * GameState.stealth_mult() * (1.3 if alert else 1.0)
+	var range_m := VIEW_RANGE * GameState.stealth_mult() * GameState.mod("sight", 1.0) * (1.3 if alert else 1.0)
 	if dist > range_m:
+		return false
+	if player.get("in_ball_pit") and dist > BALL_PIT_HIDE:
 		return false
 	var fwd := -global_transform.basis.z
 	var flat := Vector3(to.x, 0, to.z).normalized()
@@ -241,6 +264,13 @@ func _can_hear_player() -> bool:
 	if player == null:
 		return false
 	return global_position.distance_to(player.global_position) < player.noise
+
+
+## Start (or return to) patrolling, unaware of the player.
+func begin_patrol(points: Array) -> void:
+	patrol = points
+	patrol_i = 0
+	_set_state(State.PATROL)
 
 
 ## Fresh arrivals: head for a spot (a crying kid) or straight at the player.
@@ -395,7 +425,10 @@ func _physics_process(delta: float) -> void:
 	if think_timer <= 0.0:
 		think_timer = 0.15
 		sees_player = _can_see_player() and state != State.BLINDED
-		if sees_player or (_can_hear_player() and not (state in [State.FLEE, State.BLINDED])):
+		# Unaware patrollers (guards, chaperones) don't treat you as a threat until you've
+		# stirred things up: they react to scams they witness, getting hit, or rising heat.
+		var tolerant := state == State.PATROL and GameState.heat < PATROL_TOLERANCE_HEAT
+		if not tolerant and (sees_player or (_can_hear_player() and not (state in [State.FLEE, State.BLINDED]))):
 			if state in [State.PATROL, State.INVESTIGATE, State.SEARCH]:
 				_spot_player()
 			last_seen = player.global_position
@@ -413,7 +446,11 @@ func _physics_process(delta: float) -> void:
 
 	match state:
 		State.PATROL:
-			if patrol.is_empty():
+			if whale_kid and is_instance_valid(whale_kid):
+				# Chaperone: hover around the whale kid, wherever they wander.
+				var around: Vector3 = whale_kid.global_position + Vector3(2.5, 0, 0).rotated(Vector3.UP, state_t * 0.4)
+				desired = _nav_dir(around) * speed * 0.4 if _flat_dist(around) > 0.8 else Vector3.ZERO
+			elif patrol.is_empty():
 				desired = Vector3.ZERO
 			else:
 				var p: Vector3 = patrol[patrol_i]
@@ -429,7 +466,7 @@ func _physics_process(delta: float) -> void:
 				move_target = last_seen + Vector3(randf_range(-7, 7), 0, randf_range(-7, 7))
 			desired = _nav_dir(move_target) * speed * 0.5
 			if state_t > SEARCH_TIME:
-				if is_guard():
+				if is_guard() or (whale_kid and is_instance_valid(whale_kid)):
 					_set_state(State.PATROL)
 				elif player:
 					# The kids point you out: head to roughly where the player is now.
@@ -453,7 +490,7 @@ func _physics_process(delta: float) -> void:
 				if not has_token and attack_timer <= 0.0 and main and main.request_attack_token(self):
 					has_token = true
 				if has_token:
-					if dist > ATTACK_RANGE * 0.9:
+					if dist > reach * 0.9:
 						desired = to_player.normalized() * speed
 					elif attack_timer <= 0.0:
 						_set_state(State.WINDUP)
@@ -469,7 +506,7 @@ func _physics_process(delta: float) -> void:
 		State.WINDUP:
 			face = to_player
 			desired = to_player.normalized() * speed * 0.15
-			if state_t >= WINDUP_TIME:
+			if state_t >= windup_time:
 				_strike(dist, to_player)
 		State.RECOVER:
 			face = to_player
@@ -539,7 +576,7 @@ func _strike(dist: float, to_player: Vector3) -> void:
 	Sfx.play_at("whoosh", global_position + Vector3.UP * 1.4, get_parent(), -3.0)
 	_set_state(State.RECOVER)
 	var fwd := -global_transform.basis.z
-	if dist < ATTACK_RANGE + 0.5 and fwd.dot(to_player.normalized()) > 0.4:
+	if dist < reach + 0.5 and fwd.dot(to_player.normalized()) > 0.4:
 		var result: String = player.take_damage(data["damage"], to_player.normalized(), self)
 		if result == "parry":
 			parried()

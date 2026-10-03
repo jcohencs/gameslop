@@ -79,7 +79,7 @@ func _ready() -> void:
 	gs.stickers = 3
 	main.start_raid("locals")
 	await frames(10)
-	var guard = get_tree().get_nodes_in_group("parents")[0]
+	var guard = get_tree().get_nodes_in_group("parents").filter(func(p): return p.is_guard())[0]
 	# Put the guard far away so he doesn't see this first scam.
 	guard.global_position = Vector3(-20, 0.1, -20)
 	for tactic in ["junk", "sticker", "ufo"]:
@@ -378,6 +378,166 @@ func _ready() -> void:
 	gs.heat = 100.0
 	await idle(3)
 	check(get_tree().get_nodes_in_group("parents").size() >= 5, "PTA raid at max heat")
+	main._end_raid(false, "test")
+	await idle(2)
+
+	# --- Content expansion 1 (specs/002-content-expansion-1) ---
+	gs.cash = 5000
+	# Collector orders (SC-001, SC-002).
+	check(gs.orders.size() == 3, "hideout has 3 collector orders")
+	gs.stash.clear()
+	gs.orders[0] = {"kind": "rarity", "rarity": 3, "count": 2, "card_name": "", "reward": 100, "title": "t", "filled": false}
+	check(gs.fulfill_order(0) == 0, "unfillable order pays nothing")
+	var holo := {"name": "Charzard", "rarity": 3, "value": 150, "art": 1}
+	var lego := {"name": "Mewthree", "rarity": 4, "value": 500, "art": 2}
+	var common := {"name": "Squirtel", "rarity": 0, "value": 3, "art": 3}
+	gs.stash = [lego, common, holo]
+	var removed_value := gs.card_sell_value(holo) + gs.card_sell_value(lego)
+	var cash0 := gs.cash
+	var pay := gs.fulfill_order(0)
+	check(pay >= removed_value * 1.5 and gs.cash == cash0 + pay, "order pays >= 1.5x the cards' value ($%d for $%d)" % [pay, removed_value])
+	check(gs.stash.size() == 1 and gs.stash[0]["name"] == "Squirtel" and gs.orders[0]["filled"], "order removes the qualifying cards")
+	var orders_before := str(gs.orders)
+	main.start_raid("playground")
+	await frames(3)
+	main.abandon_raid()
+	await idle(2)
+	check(str(gs.orders) != orders_before, "orders reroll after a raid")
+	orders_before = str(gs.orders)
+	main.start_raid("playground")
+	await frames(3)
+	main.player.hurt_cd = 0.0
+	main.player.take_damage(99999.0)
+	await idle(2)
+	check(str(gs.orders) != orders_before, "orders reroll after a knockout")
+	gs.save_game()
+	var saved_orders: Array = gs.orders.duplicate(true)
+	gs.orders = []
+	gs.load_game()
+	check(gs.orders == saved_orders, "orders survive save/load")
+	gs.cash = 5000
+
+	# Whale + raid modifier every raid (SC-003).
+	var whale_ok := true
+	var mods_seen := {}
+	for i in 10:
+		main.start_raid(["playground", "locals", "pizza", "mall"][i % 4])
+		await frames(3)
+		var whales := get_tree().get_nodes_in_group("kids").filter(func(k): return k.whale)
+		var chaperones := get_tree().get_nodes_in_group("parents").filter(func(p): return p.whale_kid != null)
+		if whales.size() != 1 or whales[0].card["rarity"] != 4 or chaperones.size() != 1 or gs.raid_modifier == "":
+			whale_ok = false
+		mods_seen[gs.raid_modifier] = true
+		main._end_raid(false, "test")
+		await idle(2)
+		gs.cash = 5000
+	check(whale_ok, "10 raids: exactly 1 whale (Legendary) + chaperone + 1 modifier each")
+	check(gs.raid_modifier == "", "modifier clears after the raid")
+	gs.raid_modifier = "bake_sale"
+	var bake: float = gs.mod("sight", 1.0)
+	gs.raid_modifier = "report_card"
+	var report: float = gs.mod("heat_decay", 1.0)
+	gs.raid_modifier = "free_refills"
+	var refills: float = gs.mod("kid_respawn", 1.0)
+	gs.raid_modifier = "holo_hype"
+	var hype: float = gs.mod("rarity_bonus", 0.0)
+	check(bake == 0.7 and report == 0.5 and refills == 0.5 and hype == 1.0 and gs.mod("sight", 1.0) == 1.0, "modifier effects are wired")
+	gs.raid_modifier = ""
+
+	# New scam tactics (SC-006).
+	main.start_raid("locals")
+	await frames(10)
+	for par in get_tree().get_nodes_in_group("parents"):
+		par.global_position = Vector3(-20, 0.1, -20)
+	var tk = _tradeable_kid()
+	check(main._tactics_for(tk).size() == 5, "trade screen offers 5 tactics")
+	var parents_before := get_tree().get_nodes_in_group("parents").size()
+	var sob_heat := gs.heat
+	for i in 20:
+		var k = _tradeable_kid()
+		if k == null:
+			main.spawn_kid()
+			await frames(2)
+			k = _tradeable_kid()
+		k.wary = 0.0
+		gs.binder.clear()
+		main.do_trade(k, "sob")
+	await frames(3)
+	check(gs.heat <= sob_heat + 0.001, "Sob Story never adds heat")
+	check(get_tree().get_nodes_in_group("parents").size() == parents_before, "Sob Story never makes a kid cry (no parents summoned)")
+	gs.junk = 2
+	tk = _tradeable_kid()
+	if tk == null:
+		main.spawn_kid()
+		await frames(2)
+		tk = _tradeable_kid()
+	var bundle: Dictionary = main._tactics_for(tk).filter(func(t): return t["id"] == "bundle")[0]
+	check(not bundle["available"], "Bundle Deal unavailable with 2 junk")
+	gs.junk = 5
+	gs.binder.clear()
+	main.do_trade(tk, "bundle")
+	check(gs.junk == 2, "Bundle Deal spends 3 junk")
+	main._end_raid(false, "test")
+	await idle(2)
+	gs.cash = 5000
+
+	# Pizza Party Palace ball pit (SC-004, SC-005).
+	main.start_raid("pizza")
+	await frames(10)
+	var guards2 := get_tree().get_nodes_in_group("parents").filter(func(p): return p.is_guard())
+	check(guards2.size() == 1 and guards2[0].kind == "cheesy", "Cheesy the Rat guards the pizza place")
+	# Patrolling guards ignore a player who hasn't done anything (low heat)...
+	var cheesy = guards2[0]
+	gs.heat = 0.0
+	cheesy.global_position = main.player.global_position + Vector3(0, 0, -5)
+	cheesy.look_at(main.player.global_position, Vector3.UP)
+	cheesy.rotation.x = 0
+	cheesy.begin_patrol([cheesy.global_position])
+	await frames(20)
+	check(cheesy.awareness() == 0, "patrolling guard ignores a clean player")
+	# ...but react once heat is up.
+	gs.heat = 40.0
+	cheesy.look_at(main.player.global_position, Vector3.UP)
+	cheesy.rotation.x = 0
+	await frames(20)
+	check(cheesy.awareness() >= 1, "patrolling guard reacts when heat is up")
+	gs.heat = 0.0
+	cheesy.begin_patrol([Vector3(15, 0, 15)])
+	cheesy.global_position = Vector3(15, 0.1, 15)
+	var pit: AABB = main.layout["ball_pits"][0]
+	var pit_center := Vector3(pit.get_center().x, 0.1, pit.get_center().z)
+	main.player.global_position = pit_center
+	await frames(2)
+	await idle(2)
+	main.player.velocity = Vector3(9, 0, 0)
+	await frames(2)
+	check(main.player.in_ball_pit and main.player.hspeed() <= 2.5 + 0.01, "ball pit caps speed at 2.5 m/s (%.2f)" % main.player.hspeed())
+	main.player.velocity = Vector3.ZERO
+	var watcher = main.spawn_parent("dad")
+	await frames(1)
+	watcher.global_position = pit_center + Vector3(0, 0, -4)
+	watcher.look_at(pit_center, Vector3.UP)
+	watcher.rotation.x = 0
+	watcher.begin_chase(pit_center)
+	check(not watcher._can_see_player(), "adult 4 m away can't see you in the ball pit")
+	watcher.global_position = pit_center + Vector3(0, 0, -1.5)
+	check(watcher._can_see_player(), "adult 1.5 m away still sees you in the ball pit")
+
+	# Nana (SC-007).
+	gs.heat = 0.0
+	var nana_low := false
+	for i in 30:
+		if main._parent_type_for_heat() == "nana":
+			nana_low = true
+	gs.heat = 100.0
+	var nana_high := false
+	for i in 60:
+		if main._parent_type_for_heat() == "nana":
+			nana_high = true
+	check(not nana_low and nana_high, "Nana only shows up at 3+ stars")
+	var nana = main.spawn_parent("nana")
+	await frames(1)
+	check(nana.reach > 2.5 and nana.windup_time >= 0.75 and nana.data["hp"] > main.ParentScript.TYPES["pta"]["hp"], "Nana: long reach, long wind-up, tanky")
 	main._end_raid(false, "test")
 	await idle(2)
 

@@ -79,6 +79,21 @@ func build(h: float, shirt: Color, pants: Color, skin: Color, opts := {}) -> voi
 		var cap_mat := Shapes.mat(opts["cap"])
 		_part(head, _cylinder(head_r * 1.02, head_r * 0.5), Vector3(0, head_r * 1.75 + h * 0.03, 0), cap_mat)
 		_part(head, _box(Vector3(head_r * 1.4, head_r * 0.08, head_r * 1.0)), Vector3(0, head_r * 1.55 + h * 0.03, -head_r * 0.9), cap_mat)
+	if opts.has("ears"):
+		# Mascot costume: big round ears and a snout.
+		var ear_mat := Shapes.mat(opts["ears"])
+		for side in [-1, 1]:
+			var ear := _part(head, _sphere(head_r * 0.55), Vector3(side * head_r * 0.85, head_r * 1.9 + h * 0.03, 0), ear_mat)
+			ear.scale = Vector3(1, 1, 0.35)
+			_part(head, _sphere(head_r * 0.32), Vector3(side * head_r * 0.85, head_r * 1.9 + h * 0.03, -head_r * 0.12), Shapes.mat(Color(1.0, 0.7, 0.75)))
+		_part(head, _sphere(head_r * 0.42), Vector3(0, head_r * 0.85 + h * 0.03, -head_r * 0.85), ear_mat)
+		_part(head, _sphere(head_r * 0.12), Vector3(0, head_r * 0.95 + h * 0.03, -head_r * 1.25), Shapes.mat(Color(0.1, 0.05, 0.05)))
+	if opts.has("party_hat"):
+		var hat := CylinderMesh.new()
+		hat.top_radius = 0.0
+		hat.bottom_radius = head_r * 0.45
+		hat.height = head_r * 1.1
+		_part(head, hat, Vector3(0, head_r * 2.4 + h * 0.03, 0), Shapes.mat(opts["party_hat"]))
 	if opts.get("glasses", false):
 		_part(head, _box(Vector3(head_r * 1.5, head_r * 0.22, head_r * 0.1)), Vector3(0, eye_y, -head_r * 0.98), Shapes.mat(Color(0.05, 0.05, 0.05)))
 	if opts.has("backpack"):

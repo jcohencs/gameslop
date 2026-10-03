@@ -102,6 +102,14 @@ func hub_sell_card(i: int) -> void:
 	hub.set_report("Sold %s for $%d." % [c["name"], v])
 
 
+func hub_fulfill_order(i: int) -> void:
+	var title: String = GameState.orders[i]["title"]
+	var pay := GameState.fulfill_order(i)
+	if pay > 0:
+		Sfx.play("cash")
+		hub.set_report("Order filled: %s. The collector paid $%d!" % [title, pay])
+
+
 func hub_buy_junk() -> void:
 	if GameState.buy_junk():
 		Sfx.play("cash", 0.1, -4.0)
@@ -168,8 +176,17 @@ func start_raid(id: String) -> void:
 	player.rotation.y = layout["spawn_yaw"]
 	hud.set_player(player)
 
-	for i in loc["kids"]:
+	var modifier: String = GameState.roll_raid_modifier()
+	var whale := spawn_kid(true)
+	for i in loc["kids"] - 1:
 		spawn_kid()
+	# The whale's chaperone: a Soccer Mom keeping an (unaware) eye on her baby.
+	var chaperone := spawn_parent("mom")
+	if chaperone:
+		var c: Vector3 = whale.position
+		chaperone.global_position = c + Vector3(2, 0, 0)
+		chaperone.whale_kid = whale
+		chaperone.begin_patrol([c])
 	var guard := spawn_parent(loc["guard"])
 	if guard:
 		guard.patrol = layout["patrol"]
@@ -196,6 +213,7 @@ func start_raid(id: String) -> void:
 	for e in extracts:
 		names.append(e["name"])
 	GameState.say("Raid started at %s. Extracts open: %s" % [loc["name"], ", ".join(names)], UI.GOOD)
+	GameState.say("Modifier: %s. A WHALE is here!" % GameState.RAID_MODIFIERS[modifier]["name"], UI.ACCENT)
 
 
 func _add_extract(info: Dictionary) -> void:
@@ -239,6 +257,9 @@ func _end_raid(success: bool, reason: String) -> void:
 			reason, r["cards"], r["value"], r["junk"], r["stickers"], r["sand"]], UI.BAD)
 	GameState.heat = 0.0
 	GameState.health = GameState.max_health()
+	GameState.raid_modifier = ""
+	GameState.roll_orders()
+	GameState.save_game()
 	player = null
 	talking_to = null
 	level.queue_free()
@@ -259,17 +280,19 @@ func abandon_raid() -> void:
 
 # --- Spawning ----------------------------------------------------------------
 
-func spawn_kid() -> void:
+func spawn_kid(whale := false) -> Node:
 	var kid := KidScript.new()
 	kid.player = player
+	kid.whale = whale
 	var b: Rect2 = layout["kid_bounds"]
 	kid.bounds = b
 	kid.pois = layout["pois"]
-	kid.rarity_bonus = GameState.LOCATIONS[GameState.location_id]["rarity_bonus"]
+	kid.rarity_bonus = GameState.LOCATIONS[GameState.location_id]["rarity_bonus"] + GameState.mod("rarity_bonus", 0.0)
 	var start: Vector3 = layout["pois"][randi() % layout["pois"].size()]
 	kid.position = start + Vector3(randf_range(-2, 2), 0.1, randf_range(-2, 2))
 	kid.cried.connect(_on_kid_cried)
 	level.add_child(kid)
+	return kid
 
 
 func spawn_parent(type_id: String, reason := "") -> Node:
@@ -299,11 +322,12 @@ func _parent_type_for_heat() -> String:
 	if s >= 2:
 		pool.append("mom")
 	if s >= 3:
-		pool.append("pta")
+		pool.append_array(["pta", "nana"])
 	if s >= 4:
 		pool.append_array(["pta", "coach"])
 	if s >= 5:
 		pool.append("coach")
+	pool = pool.filter(func(t): return s >= ParentScript.TYPES[t].get("min_stars", 0))
 	return pool[randi() % pool.size()]
 
 
@@ -385,6 +409,8 @@ func _process(delta: float) -> void:
 		_end_raid(false, "TIME'S UP! The place closed and your mom dragged you home.")
 		return
 
+	player.in_ball_pit = in_ball_pit(player.global_position)
+
 	var parents := get_tree().get_nodes_in_group("parents")
 	var hunting := 0
 	awareness = 0
@@ -396,7 +422,7 @@ func _process(delta: float) -> void:
 			hunting += 1
 		if a >= 1:
 			markers.append({"pos": p.global_position, "color": UI.BAD if a == 2 else UI.ACCENT})
-	gs.heat = maxf(gs.heat - delta * (0.4 if hunting > 0 else 1.6), 0.0)
+	gs.heat = maxf(gs.heat - delta * (0.4 if hunting > 0 else 1.6) * gs.mod("heat_decay", 1.0), 0.0)
 
 	raid_cooldown -= delta
 	if gs.heat >= 99.0 and raid_cooldown <= 0.0:
@@ -413,7 +439,7 @@ func _process(delta: float) -> void:
 	if kids < gs.LOCATIONS[gs.location_id]["kids"]:
 		kid_respawn_timer -= delta
 		if kid_respawn_timer <= 0.0:
-			kid_respawn_timer = 5.0
+			kid_respawn_timer = 5.0 * gs.mod("kid_respawn", 1.0)
 			spawn_kid()
 
 	var extracting := _update_extraction(delta, markers)
@@ -425,13 +451,24 @@ func _process(delta: float) -> void:
 	var t: Node = player.interact_target
 	if extracting:
 		hud.set_prompt("EXTRACTING... stay in the zone!", "")
-	elif hud.any_menu_open() or t == null:
+	elif hud.any_menu_open():
 		hud.set_prompt("")
+	elif t == null:
+		hud.set_prompt("HIDING IN THE BALL PIT" if player.in_ball_pit else "", "")
 	else:
 		var wary := "  (wary!)" if t.wary > 0.0 else ""
 		hud.set_prompt("Trade with %s  -  %s %s%s" % [t.kid_name, gs.rarity_name(t.card), t.card["name"], wary])
 	hud.set_target("kid" if t else ("enemy" if _enemy_in_reach() else ""))
 	hud.refresh(delta, player)
+
+
+## True when pos is inside one of the level's ball pits (Pizza Party Palace).
+func in_ball_pit(pos: Vector3) -> bool:
+	for box in layout.get("ball_pits", []):
+		var b: AABB = box
+		if pos.x > b.position.x and pos.x < b.end.x and pos.z > b.position.z and pos.z < b.end.z and pos.y < b.end.y:
+			return true
+	return false
 
 
 func _enemy_in_reach() -> bool:
@@ -585,19 +622,18 @@ func spawn_damage_number(at: Vector3, amount: float, big: bool) -> void:
 func _tactics_for(kid: Node) -> Array:
 	var gs := GameState
 	var penalty: float = kid.card["rarity"] * 0.07 + (0.2 if kid.wary > 0.0 else 0.0)
-	var list := [
-		{"id": "junk", "label": "Offer a \"super rare\" junk card", "base": 0.6, "heat": 8.0, "cry": 0.25,
-			"cost_text": "Costs 1 junk card  ·  low heat", "available": gs.junk > 0},
-		{"id": "sticker", "label": "Holo-sticker forgery", "base": 0.9, "heat": 4.0, "cry": 0.1,
-			"cost_text": "Costs 1 junk + 1 sticker  ·  barely any heat", "available": gs.junk > 0 and gs.stickers > 0},
-		{"id": "ufo", "label": "\"Whoa, is that a UFO?!\" (swipe it)", "base": 0.75, "heat": 22.0, "cry": 1.0,
-			"cost_text": "Free  ·  the kid WILL cry  ·  high heat", "available": true},
-	]
-	for t in list:
-		t["chance"] = clampf(t["base"] + gs.scam_bonus() - penalty, 0.05, 0.97)
+	var list := []
+	for def in gs.TACTICS:
+		var t: Dictionary = def.duplicate()
+		t["available"] = gs.junk >= def["junk_cost"] and gs.stickers >= def["sticker_cost"]
+		if not t["available"]:
+			t["cost_text"] = "%s  ·  you have %d junk, %d sticker%s" % [def["cost_text"], gs.junk, gs.stickers,
+				"" if gs.stickers == 1 else "s"]
+		t["chance"] = clampf(def["base"] + gs.scam_bonus() - penalty, 0.05, 0.97)
 		if gs.binder.size() >= gs.capacity():
 			t["available"] = false
 			t["cost_text"] = "BINDER FULL - go extract!"
+		list.append(t)
 	return list
 
 
@@ -612,10 +648,8 @@ func do_trade(kid: Node, tactic_id: String) -> void:
 	if tactic.is_empty() or not tactic["available"]:
 		return
 	var gs := GameState
-	if tactic_id == "junk" or tactic_id == "sticker":
-		gs.junk -= 1
-	if tactic_id == "sticker":
-		gs.stickers -= 1
+	gs.junk -= tactic["junk_cost"]
+	gs.stickers -= tactic["sticker_cost"]
 	close_menus()
 
 	if randf() < tactic["chance"]:
@@ -629,6 +663,14 @@ func do_trade(kid: Node, tactic_id: String) -> void:
 			kid.cry()
 		else:
 			kid.become_scammed()
+	elif tactic["gentle"]:
+		# Sob story flopped: no drama, the kid just won't fall for it again soon.
+		gs.say("%s isn't buying it." % kid.kid_name, UI.TEXT_DIM)
+		kid.stop_talking()
+		kid.wary = 30.0
+		kid._refresh_label()
+		gs.changed.emit()
+		return
 	else:
 		gs.add_heat(tactic["heat"] + 12.0)
 		gs.say("%s saw right through you!" % kid.kid_name, UI.BAD)

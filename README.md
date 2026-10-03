@@ -8,6 +8,8 @@ A goofy low-poly, first-person extraction game made in Godot 4. You're a shady c
 | --- | --- |
 | ![Stash](screenshot_hideout.png) | ![Trade](screenshot_trade.png) |
 
+![Pizza Party Palace: the ball pit](screenshot_pizza.png)
+
 ## Running
 
 1. Install [Godot 4.3+](https://godotengine.org/download) (standard build, not .NET).
@@ -38,6 +40,7 @@ Everything (art, animation, sound) is generated in code, so there are no asset f
 
 Grounded, readable speeds: run about 5 m/s, sprint about 6.8 m/s, hard cap 12 m/s. All the numbers
 live in `GameState.MOVEMENT`; see `specs/001-movement-retune/` for the spec and design.
+Feature specs live in `specs/` (e.g. `specs/002-content-expansion-1/`).
 
 - Ground movement has friction and acceleration, like Quake and Source.
 - **Sprint + bunny hop:** hold Shift + Space to chain hops at sprint speed.
@@ -64,15 +67,33 @@ live in `GameState.MOVEMENT`; see `specs/001-movement-retune/` for the spec and 
 | --- | --- | --- | --- |
 | Sunnyvale Playground | free | Recess Monitor | Lots of kids, mostly junk cards. |
 | Friday Night Locals @ Dragon's Den | $15 | Gary (Store Owner) | Tournament kids with holos. Starts at higher heat. |
+| Pizza Party Palace | $25 | Cheesy the Rat | A birthday-party arcade. **Ball pit:** you're slowed to 2.5 m/s inside, but adults more than 2.5 m away can't see you, so it's great for losing a chase. Arcade cabinets give cover. |
 | Galleria Mall Food Court | $40 | Mall Cop | Rich kids with Legendaries. Gym coaches show up fast. |
 
 **Raid.** Look at a kid and press **E** to see their card and pick a tactic:
 
 - *"Super rare" junk card*: costs 1 junk card. Decent odds, low heat.
 - *Holo-sticker forgery*: costs 1 junk card + 1 sticker. Great odds, very low heat.
+- *Bundle Deal*: costs 3 junk cards. Good odds, low heat.
+- *Sob Story*: free, low odds, **no heat and the kid never cries**. If it fails, the kid just gets wary.
 - *"Is that a UFO?!"*: free, but the kid always cries.
 
 Rarer cards are harder to scam. Kids who **witness** a scam get wary (-20% odds), and if the patrolling **guard** sees you do it, they come after you.
+
+**Raid events.** Every raid has a **WHALE**: a kid with a guaranteed Legendary card, a gold halo,
+and a chaperone mom hovering nearby. Every raid also rolls one modifier, shown under the timer:
+
+- *Bake Sale*: adults have 30% less sight range.
+- *Report Card Day*: heat cools down 50% slower.
+- *Free Refills*: kids show up twice as fast.
+- *Holo Hype*: Rare+ cards are more common.
+
+Patrolling guards and chaperones leave you alone until you stir things up (heat), or until they see
+you scam someone.
+
+**Collector Orders.** The hideout's ORDERS tab has three orders (e.g. "Deliver 2 Holo+ cards:
+$480"). Filling one uses the cheapest qualifying stash cards and pays at least 1.5× their sell
+value. New orders roll after every raid.
 
 **Extract.** Two of each level's three extraction points are open per raid. They show as green beams and as markers on the compass. Stand inside one for 5 seconds. Unblocked hits set the countdown back.
 
@@ -89,6 +110,8 @@ Rarer cards are harder to scam. Kids who **witness** a scam get wary (-20% odds)
 - Crying kids run to the nearest grown-up, and nearby adults come to check on them. Once heat is up, parents radio each other ("the mom group chat").
 - Kids hang out at tables and play spots, chat with each other, cheer when a fight breaks out nearby, and flee if it gets too close.
 - Soccer Moms sometimes flee at low health ("I'm calling my LAWYER!").
+- **Nana** shows up at 3+ heat stars. She's slow and tanky, and her cane swing has a long, clearly
+  telegraphed wind-up and the longest reach of any adult.
 
 ## Weapons
 

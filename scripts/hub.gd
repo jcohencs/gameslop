@@ -19,6 +19,7 @@ var deploy_tab: VBoxContainer
 var stash_tab: VBoxContainer
 var shop_tab: VBoxContainer
 var upgrades_tab: VBoxContainer
+var orders_tab: VBoxContainer
 var continue_button: Button
 var _dirty := true
 
@@ -193,6 +194,7 @@ func _build_hub() -> void:
 	stash_tab = _tab("STASH")
 	shop_tab = _tab("SHOP")
 	upgrades_tab = _tab("UPGRADES")
+	orders_tab = _tab("ORDERS")
 
 
 func _tab(title: String) -> VBoxContainer:
@@ -220,10 +222,12 @@ func _refresh() -> void:
 	stats_label.text = "Stash: %d cards ($%d)   ·   Raids %d   ·   Extracts %d   ·   Scams %d   ·   KOs %d" % [
 		gs.stash.size(), gs.cards_value(gs.stash), gs.raids, gs.extracts, gs.scams, gs.knockouts]
 	tabs.set_tab_title(1, "STASH (%d)" % gs.stash.size())
+	tabs.set_tab_title(4, "ORDERS (%d ready)" % gs.orders_ready())
 	_fill_deploy()
 	_fill_stash()
 	_fill_shop()
 	_fill_upgrades()
+	_fill_orders()
 
 
 func _clear(n: Node) -> void:
@@ -383,6 +387,39 @@ func _stat(parent: Control, stat_name: String, frac: float) -> void:
 
 
 # --- Upgrades ----------------------------------------------------------------
+
+func _fill_orders() -> void:
+	var gs := GameState
+	_clear(orders_tab)
+	orders_tab.add_child(UI.label("COLLECTOR ORDERS", 18, UI.INFO, true))
+	orders_tab.add_child(UI.wrap(UI.label("Collectors pay way over sell price for specific cards. Fill orders from your stash; " +
+		"the cheapest qualifying cards are used.", 15, UI.TEXT_DIM)))
+	var row := UI.hbox(14)
+	orders_tab.add_child(row)
+	for i in gs.orders.size():
+		var o: Dictionary = gs.orders[i]
+		var tv := _tile(330)
+		var tile: PanelContainer = tv[0]
+		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(tile)
+		var v: VBoxContainer = tv[1]
+		var col: Color = gs.RARITIES[o["rarity"]]["color"] if o["kind"] == "rarity" else UI.ACCENT
+		v.add_child(UI.wrap(UI.label(o["title"], 20, col, true)))
+		v.add_child(UI.label("Reward: $%d" % o["reward"], 18, UI.GOOD, true))
+		var have := gs.order_have(o)
+		v.add_child(UI.label("In your stash: %d / %d" % [have, o["count"]], 15, UI.TEXT if have >= o["count"] else UI.TEXT_DIM))
+		var b: Button
+		if o.get("filled", false):
+			b = UI.button("FILLED", func(): pass, 17, 44)
+			b.disabled = true
+		elif have >= o["count"]:
+			b = UI.button("FULFILL  +$%d" % gs.order_payout(o), main.hub_fulfill_order.bind(i), 17, 44)
+		else:
+			b = UI.button("NEED %d MORE" % (o["count"] - have), func(): pass, 17, 44)
+			b.disabled = true
+		v.add_child(b)
+	orders_tab.add_child(UI.label("New orders after every raid.", 14, UI.TEXT_DIM))
+
 
 func _fill_upgrades() -> void:
 	var gs := GameState
