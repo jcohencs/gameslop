@@ -65,7 +65,7 @@ static func _shell(root: Node3D) -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(HALF_X * 2, HALF_Z * 2)
 	floor_mesh.mesh = plane
-	var fm := Art.textured(Color(0.93, 0.72, 0.48), "wood")
+	var fm := Art.textured(Color(0.86, 0.72, 0.55), "wood")
 	fm.roughness = 0.18
 	fm.metallic_specular = 0.8
 	floor_mesh.material_override = fm

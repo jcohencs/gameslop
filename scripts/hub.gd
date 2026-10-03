@@ -253,7 +253,7 @@ func _fill_deploy() -> void:
 	deploy_tab.add_child(row)
 	for id in gs.LOCATIONS:
 		var loc: Dictionary = gs.LOCATIONS[id]
-		var tv := _tile(330)
+		var tv := _tile(270)
 		var tile: PanelContainer = tv[0]
 		var v: VBoxContainer = tv[1]
 		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -267,7 +267,7 @@ func _fill_deploy() -> void:
 		v.add_child(diff)
 		v.add_child(UI.wrap(UI.label(loc["desc"], 15, UI.TEXT)))
 		var guard: String = load("res://scripts/parent.gd").TYPES[loc["guard"]]["name"]
-		v.add_child(UI.label("Timer %d:%02d  ·  %d kids  ·  Guard: %s" % [int(loc["time"]) / 60, int(loc["time"]) % 60, loc["kids"], guard], 14, UI.TEXT_DIM))
+		v.add_child(UI.wrap(UI.label("Timer %d:%02d  ·  %d kids  ·  Guard: %s" % [int(loc["time"]) / 60, int(loc["time"]) % 60, loc["kids"], guard], 14, UI.TEXT_DIM)))
 		var fee := "FREE ENTRY" if loc["fee"] == 0 else "ENTRY $%d" % loc["fee"]
 		var go := UI.button("DEPLOY  -  %s" % fee, main.start_raid.bind(id), 19, 50)
 		go.disabled = gs.cash < loc["fee"]
@@ -292,7 +292,7 @@ func _fill_deploy() -> void:
 			owned.append(gs.BLASTERS[id]["name"])
 	winfo.add_child(UI.label("Best wave: %s   ·   Blasters: %s" % [str(gs.best_wave) if gs.best_wave > 0 else "-", ", ".join(owned)], 14, UI.TEXT_DIM))
 	var wgo := UI.button("DEPLOY  -  FREE", main.start_waves, 20, 56)
-	wgo.custom_minimum_size = Vector2(260, 56)
+	wgo.custom_minimum_size = Vector2(220, 56)
 	wgo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	wrow.add_child(wgo)
 

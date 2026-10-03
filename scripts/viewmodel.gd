@@ -37,7 +37,7 @@ var _trail_cd := 0.0
 var _kick := Vector3.ZERO
 
 # Wave Mode blasters (specs/004).
-const GUN_HIP := Vector3(0.17, -0.19, -0.42)
+const GUN_HIP := Vector3(0.18, -0.2, -0.46)
 const GUN_AIM := Vector3(0.0, -0.125, -0.34)
 var gun: Node3D = null
 var muzzle: Node3D = null
@@ -243,6 +243,7 @@ func set_blaster(id: String) -> void:
 	_make_fist(hand_r, "knuckles", GameState.WEAPONS["knuckles"])
 	gun = Node3D.new()
 	gun.position = GUN_HIP
+	gun.scale = Vector3.ONE * (0.8 if id == "dart" else 0.9)
 	sway.add_child(gun)
 	muzzle = Node3D.new()
 	gun.add_child(muzzle)
@@ -360,9 +361,11 @@ func _tick_gun(delta: float) -> void:
 	# Hands follow the blaster: right on the grip, left on the fore-grip (or the tank mid-reload).
 	arm_r.position = pos + Vector3(0.0, -0.09, 0.07)
 	arm_r.rotation = Vector3(0.35 + gun.rotation.x * 0.5, 0.1, gun.rotation.z * 0.5)
-	var fore := Vector3(-0.045, -0.055, -0.2).lerp(Vector3(-0.06, -0.14, -0.02), p)
+	# The pistol is cupped from below; long blasters are held by the fore-grip.
+	var grip := Vector3(-0.03, -0.11, 0.03) if blaster_id == "dart" else Vector3(-0.045, -0.06, -0.21)
+	var fore := grip.lerp(Vector3(-0.06, -0.14, -0.02), p)
 	arm_l.position = pos + fore
-	arm_l.rotation = Vector3(0.25, -0.55, 0.35)
+	arm_l.rotation = Vector3(0.45, -0.85, 0.2)
 
 
 # --- Pose helpers ------------------------------------------------------------

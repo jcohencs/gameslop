@@ -43,7 +43,7 @@ const MOODS := {
 	"arena": {"sun_rot": Vector3(-35, 60, 0), "sun_color": Color(1.0, 0.88, 0.7), "sun_energy": 0.4,
 		"sky_top": Color(0.5, 0.42, 0.35), "sky_horizon": Color(0.95, 0.82, 0.62), "ground": Color(0.45, 0.35, 0.25),
 		"ambient": 0.7, "fog": true, "fog_color": Color(0.95, 0.85, 0.7), "fog_density": 0.006,
-		"contrast": 1.1, "saturation": 1.15, "glow": 0.55, "exposure": 0.85,
+		"contrast": 1.1, "saturation": 1.02, "glow": 0.5, "exposure": 0.82,
 		"ssr": true, "volumetric": true, "vol_density": 0.018},
 }
 
@@ -211,7 +211,7 @@ static func _pixel(tex_name: String, u: float, v: float) -> Color:
 			var k := 0.78 + 0.14 * _fbm(u, v, 3, 14)
 			# Short, faint hairline cracks (only where a second noise allows).
 			if absf(_vnoise(u, v, 5, 15) - 0.5) < 0.01 and _vnoise(u, v, 3, 16) > 0.62:
-				k -= 0.1
+				k -= 0.04
 			return Color(k, k, k * 0.98)
 	return Color.WHITE
 

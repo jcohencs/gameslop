@@ -91,7 +91,10 @@ static func _table(root: Node3D, pos: Vector3, length: float, mat_color: Color) 
 static func _playground(root: Node3D) -> Dictionary:
 	var half := 30.0
 	_ground(root, 120, Color(0.36, 0.6, 0.28), "grass")
-	_perimeter(root, half, 2.2, Color(0.62, 0.62, 0.68), "concrete")
+	# See-through chain-link fence around the schoolyard (same footprint as a wall).
+	for c in [[Vector3(-half, 0, -half), Vector3(half, 0, -half)], [Vector3(-half, 0, half), Vector3(half, 0, half)],
+			[Vector3(-half, 0, -half), Vector3(-half, 0, half)], [Vector3(half, 0, -half), Vector3(half, 0, half)]]:
+		Props.fence(root, c[0], c[1], 2.4)
 	Shapes.box(root, Vector3(18, 0.02, 12), Vector3(-14, 0.01, 12), Color(0.55, 0.55, 0.6), "asphalt")
 	Shapes.box(root, Vector3(0.2, 0.03, 12), Vector3(-14, 0.02, 12), Color.WHITE)
 
@@ -99,8 +102,16 @@ static func _playground(root: Node3D) -> Dictionary:
 	Shapes.solid_box(root, Vector3(30, 9, 8), Vector3(0, 4.5, -25.5), Color(0.95, 0.6, 0.5), 0.0, "brick")
 	Shapes.box(root, Vector3(3, 4, 0.2), Vector3(0, 2, -21.4), Color(0.35, 0.2, 0.12))
 	for x in [-11, -6, 6, 11]:
-		Shapes.box(root, Vector3(3, 2, 0.15), Vector3(x, 5.5, -21.45), Color(0.6, 0.85, 1.0))
+		Props.window(root, Vector3(x, 5.6, -21.45), 3.0, 2.0, PI)
+	for x in [-11, -6, 6, 11]:
+		Props.window(root, Vector3(x, 2.1, -21.45), 3.0, 1.8, PI)
 	_sign(root, "SUNNYVALE ELEMENTARY", Vector3(0, 8, -21.3), Color(1, 1, 0.8), 160)
+	Props.roof(root, Vector3(0, 9.12, -25.5), Vector2(30.6, 8.6), Color(0.45, 0.42, 0.42))
+	for side in [-0.62, 0.62]:
+		Props.door(root, Vector3(side, 0, -21.42), 1.2, 3.2, PI, Color(0.25, 0.4, 0.7))
+	Props.curb(root, Vector3(0, 0, -20.4), Vector2(8.0, 2.0))
+	Props.flagpole(root, Vector3(6.5, 0, -19.6), 7.5)
+	Props.bike_rack(root, Vector3(-6.5, 0, -19.6), 0.0, 2)
 
 	# Sandbox.
 	var wood := Color(0.6, 0.4, 0.2)
@@ -135,7 +146,7 @@ static func _playground(root: Node3D) -> Dictionary:
 		_tree(root, t)
 
 	# Extraction props.
-	Shapes.solid_box(root, Vector3(2.6, 3, 9), Vector3(-26, 1.5, 24), Color(0.95, 0.75, 0.1)) # school bus
+	Props.bus(root, Vector3(-26, 0, 24), PI)
 	Shapes.solid_box(root, Vector3(2.4, 2.6, 4.5), Vector3(26, 1.3, 22), Color(0.88, 0.9, 0.96)) # ice cream truck
 	for side in [-1, 1]:
 		Shapes.box(root, Vector3(0.04, 0.35, 4.5), Vector3(26 + side * 1.21, 0.75, 22), Color(1.0, 0.45, 0.65))
@@ -155,6 +166,26 @@ static func _playground(root: Node3D) -> Dictionary:
 		Art.bush(root, Vector3(28.6, 0, z))
 	for lp in [Vector3(-8, 0, 20), Vector3(10, 0, 20), Vector3(22, 0, -2), Vector3(-22, 0, -2)]:
 		Art.lamp_post(root, lp, false)
+	# Schoolyard furniture and a hoop on the blacktop.
+	Props.picnic_table(root, Vector3(10, 0, 25.5), 0.0)
+	Props.picnic_table(root, Vector3(15.5, 0, 25.5), 0.0)
+	for tc in [Vector3(-3, 0, 17.6), Vector3(16, 0, -14.5), Vector3(-15.5, 0, 19.0), Vector3(12.8, 0, 25.6)]:
+		Props.trash_can(root, tc)
+	Props.hoop(root, Vector3(-22.4, 0, 12), -PI / 2)
+	Shapes.box(root, Vector3(4.5, 0.025, 4.0), Vector3(-19.8, 0.02, 12), Color(0.85, 0.3, 0.25))
+	Props.hydrant(root, Vector3(20.5, 0, 28.4))
+	Props.cone(root, Vector3(-9, 0, 9))
+	Props.cone(root, Vector3(-10.5, 0, 14.5))
+	# The neighborhood past the fence: trees and houses so the fence has something behind it.
+	for t in [Vector3(-38, 0, -10), Vector3(-36, 0, 18), Vector3(38, 0, 8), Vector3(36, 0, -22), Vector3(10, 0, 38), Vector3(-18, 0, 37)]:
+		Art.tree(root, t, 1.3)
+	for i in 5:
+		var hx := -24.0 + i * 12.0
+		var hc := Color.from_hsv(0.05 + i * 0.17, 0.35, 0.9)
+		Shapes.box(root, Vector3(8, 5, 7), Vector3(hx, 2.5, 44), hc)
+		var roof_mi := Shapes.box(root, Vector3(8.6, 0.4, 5.4), Vector3(hx, 5.9, 44), Color(0.55, 0.25, 0.2))
+		roof_mi.rotation.x = 0.0
+		Shapes.box(root, Vector3(1.4, 2.2, 0.1), Vector3(hx, 1.1, 40.45), Color(0.4, 0.25, 0.15))
 	Art.clouds(root)
 
 	return {
@@ -191,6 +222,18 @@ static func _locals(root: Node3D) -> Dictionary:
 	Shapes.box(root, Vector3(30.4, 1.2, 0.5), Vector3(0, 4.6, 6), Color(0.15, 0.1, 0.2))
 	_sign(root, "DRAGON'S DEN GAMES", Vector3(0, 4.6, 6.3), Color(1, 0.75, 0.2), 150)
 	_sign(root, "FRIDAY NIGHT LOCALS\nentry: 1 binder", Vector3(0, 3.2, -15.7), Color(0.9, 0.9, 1.0), 110)
+	# Roof with AC units, a fluorescent-lit ceiling inside, glass front windows and a curb.
+	Props.roof(root, Vector3(0, 4.12, -5), Vector2(30.6, 22.6), Color(0.42, 0.4, 0.42))
+	for z in [-12.0, -6.5, -1.0]:
+		for x in [-7.0, 7.0]:
+			Props.ceiling_light(root, Vector3(x, 3.95, z), Vector2(2.4, 0.6), x < 0)
+	Props.window(root, Vector3(-6.0, 2.2, 6.22), 3.4, 2.0, PI, Color(0.3, 0.2, 0.25))
+	Props.window(root, Vector3(4.0, 2.2, 6.22), 3.4, 2.0, PI, Color(0.3, 0.2, 0.25))
+	Props.curb(root, Vector3(0, 0, 7.5), Vector2(30.0, 2.6))
+	Props.trash_can(root, Vector3(-3.4, 0.15, 7.4), Color(0.25, 0.25, 0.3))
+	Props.trash_can(root, Vector3(3.4, 0.15, 7.4), Color(0.25, 0.25, 0.3))
+	Props.vending(root, Vector3(13.5, 0.15, 7.3), PI, Color(0.15, 0.4, 0.85))
+	Props.hydrant(root, Vector3(-16.5, 0, 8.2))
 
 	# Tournament tables with play mats.
 	var mats := [Color(0.2, 0.3, 0.7), Color(0.6, 0.15, 0.2), Color(0.2, 0.5, 0.3), Color(0.4, 0.2, 0.6)]
@@ -217,13 +260,15 @@ static func _locals(root: Node3D) -> Dictionary:
 	# Parking lot cars and lines.
 	for x in [-18.0, -13.0, -8.0, 8.0, 13.0, 18.0]:
 		Shapes.box(root, Vector3(0.15, 0.02, 5), Vector3(x + 2.5, 0.02, 14), Color(0.9, 0.9, 0.9))
-	_car(root, Vector3(-15.5, 0, 14), Color(0.7, 0.1, 0.1))
-	_car(root, Vector3(-5.5, 0, 14), Color(0.2, 0.4, 0.8))
-	_car(root, Vector3(15.5, 0, 14), Color(0.85, 0.85, 0.85))
-	Shapes.solid_box(root, Vector3(2.3, 2.0, 5), Vector3(10.5, 1.0, 14), Color(0.55, 0.6, 0.5)) # the minivan
+	Props.car(root, Vector3(-15.5, 0, 14), Color(0.7, 0.1, 0.1))
+	Props.car(root, Vector3(-5.5, 0, 14), Color(0.2, 0.4, 0.8), PI)
+	Props.car(root, Vector3(15.5, 0, 14), Color(0.85, 0.85, 0.85))
+	Props.car(root, Vector3(10.5, 0, 14), Color(0.55, 0.6, 0.5), PI, true)  # Mom's minivan
 	# Back alley dumpster.
 	Shapes.solid_box(root, Vector3(3, 1.6, 1.6), Vector3(-6, 0.8, -19), Color(0.15, 0.4, 0.2))
-	Shapes.solid_box(root, Vector3(0.6, 2.4, 0.6), Vector3(-20, 1.2, 20), Color(0.2, 0.3, 0.6)) # bus stop pole
+	Props.bus_shelter(root, Vector3(-21.0, 0, 22.2), 0.0)
+	Props.cone(root, Vector3(0, 0, 10.5))
+	Props.cone(root, Vector3(1.5, 0, 10.5))
 
 	# Dressing: lot lamps (it's evening), tournament posters, folding chairs, clouds.
 	for lp in [Vector3(-18, 0, 9), Vector3(-6, 0, 9), Vector3(6, 0, 9), Vector3(18, 0, 9)]:
@@ -274,9 +319,9 @@ static func _mall(root: Node3D) -> Dictionary:
 	for s in 3:
 		var x := -16.0 + s * 16.0
 		Shapes.solid_box(root, Vector3(10, 4, 3), Vector3(x, 2, -24.4), shops[s][1])
-		_sign(root, shops[s][0], Vector3(x, 4.5, -22.85), Color.WHITE, 110)
+		Props.storefront(root, Vector3(x, 0, -22.86), 10.0, shops[s][0], shops[s][1], PI)
 		Shapes.solid_box(root, Vector3(10, 4, 3), Vector3(x, 2, 24.4), shops[s + 3][1])
-		_sign(root, shops[s + 3][0], Vector3(x, 4.5, 22.85), Color.WHITE, 110, PI)
+		Props.storefront(root, Vector3(x, 0, 22.86), 10.0, shops[s + 3][0], shops[s + 3][1], 0.0)
 
 	# Fountain.
 	Shapes.solid_cylinder(root, 3.2, 0.8, Vector3(0, 0.4, 0), Color(0.75, 0.75, 0.8))
@@ -305,6 +350,23 @@ static func _mall(root: Node3D) -> Dictionary:
 	for pos in [Vector3(-18, 0, -14), Vector3(18, 0, -14), Vector3(-18, 0, 14), Vector3(18, 0, 14)]:
 		Shapes.solid_box(root, Vector3(2.4, 0.7, 2.4), pos + Vector3(0, 0.35, 0), Color(0.75, 0.73, 0.7), 0.0, "concrete")
 		Art.bush(root, pos + Vector3(0, 0.6, 0), Color(0.25, 0.6, 0.3))
+	# Benches around the fountain, bins, plants and vending machines along the walls.
+	for i in 4:
+		var a := PI / 4 + i * PI / 2
+		Props.bench(root, Vector3(cos(a) * 5.2, 0, sin(a) * 5.2), -a + PI / 2, Color(0.55, 0.35, 0.2))
+	for tc in [Vector3(-9, 0, -4.5), Vector3(9, 0, 4.5), Vector3(-20.5, 0, 8), Vector3(20.5, 0, -8)]:
+		Props.trash_can(root, tc, Color(0.55, 0.55, 0.6))
+	for pp in [Vector3(-9.5, 0, 2.5), Vector3(9.5, 0, -2.5), Vector3(-3, 0, -9.5), Vector3(3, 0, 9.5)]:
+		Props.plant(root, pp, 1.1)
+	Props.vending(root, Vector3(25.3, 0, -6), PI / 2, Color(0.85, 0.15, 0.15))
+	Props.vending(root, Vector3(-25.3, 0, 6), -PI / 2, Color(0.15, 0.55, 0.3))
+	# Glass skylight: a steel grid whose shadows fall across the food court.
+	for i in 13:
+		var c := -24.0 + i * 4.0
+		var bx := Shapes.box(root, Vector3(0.25, 0.35, 52), Vector3(c, 6.2, 0), Color(0.85, 0.87, 0.9))
+		var bz := Shapes.box(root, Vector3(52, 0.35, 0.25), Vector3(0, 6.2, c), Color(0.85, 0.87, 0.9))
+		for b in [bx, bz]:
+			b.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	Art.clouds(root)
 
 	return {
@@ -343,6 +405,10 @@ static func _pizza(root: Node3D) -> Dictionary:
 		var bot := Shapes.solid_cylinder(root, 0.5, 1.6, Vector3(x, 1.4, -21.5), Color.from_hsv(i * 0.3, 0.6, 0.8))
 		Shapes.sphere(bot, 0.45, Vector3(0, 1.1, 0), Color.from_hsv(i * 0.3, 0.5, 0.9))
 	_sign(root, "PIZZA PARTY PALACE", Vector3(0, 4.2, -23.6), Color(1, 0.85, 0.2), 170)
+	# Stage curtains and a valance behind the band.
+	for i in 13:
+		var fold := Shapes.box(root, Vector3(1.0, 3.6, 0.25), Vector3(-6.0 + i * 1.0, 2.4, -23.5 + (i % 2) * 0.12), Color(0.65, 0.08, 0.15).lightened((i % 2) * 0.08))
+		fold.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_sign(root, "HAPPY BIRTHDAY TYLER!!", Vector3(0, 3.3, -23.6), Color(1, 0.4, 0.8), 110)
 
 	# Party tables with pizzas and party hats (center).
@@ -353,17 +419,11 @@ static func _pizza(root: Node3D) -> Dictionary:
 			var hat := Shapes.cylinder(root, 0.12, 0.3, Vector3(x + 0.8, 0.95, z + 0.4), Color.from_hsv(randf(), 0.7, 0.9))
 			(hat.mesh as CylinderMesh).top_radius = 0.0
 
-	# Arcade cabinets (east), glowing screens.
+	# Arcade cabinets (east): rows facing west, with light-up side trim and marquees.
 	for row in 3:
 		for i in 4:
 			var pos := Vector3(9.5 + row * 4.0, 0, -4.0 + i * 3.2)
-			Shapes.solid_box(root, Vector3(1.1, 2.0, 1.0), pos + Vector3(0, 1.0, 0), Color(0.12, 0.12, 0.18))
-			var glow := Shapes.mat(Color.from_hsv(randf(), 0.8, 1.0), 2.0)
-			for side in [-1.0, 1.0]:
-				var screen := Shapes.box(root, Vector3(0.85, 0.6, 0.05), pos + Vector3(0, 1.45, side * 0.52), Color.WHITE)
-				screen.material_override = glow
-			var marquee := Shapes.box(root, Vector3(1.12, 0.25, 1.02), pos + Vector3(0, 2.12, 0), Color.WHITE)
-			marquee.material_override = Shapes.mat(Color.from_hsv(randf(), 0.6, 1.0), 1.5)
+			Props.arcade(root, pos, PI / 2, Color.from_hsv(randf(), 0.35, 0.25))
 	_sign(root, "ARCADE", Vector3(13.5, 3.2, -6.5), Color(0.4, 1, 1), 120)
 
 	# Prize counter (southeast).
@@ -406,6 +466,17 @@ static func _pizza(root: Node3D) -> Dictionary:
 		var x := -22.0 + i * 4.0
 		var streamer := Shapes.box(root, Vector3(3.8, 0.25, 0.04), Vector3(x, 4.4, -23.7), Color.from_hsv(i / 12.0, 0.7, 1.0))
 		streamer.rotation.z = 0.12 if i % 2 == 0 else -0.12
+	# A ceiling with light panels (it doesn't cast sun shadows: the party stays bright).
+	var ceil := Shapes.box(root, Vector3(48.5, 0.3, 48.5), Vector3(0, 5.15, 0), Color(0.5, 0.45, 0.6), "tiles")
+	ceil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for x in [-14.0, 0.0, 14.0]:
+		for z in [-14.0, 0.0, 14.0]:
+			Props.ceiling_light(root, Vector3(x, 4.98, z), Vector2(2.0, 2.0), false)
+	for pp in [Vector3(-22.6, 0, -20), Vector3(22.6, 0, 8)]:
+		Props.plant(root, pp)
+	Props.trash_can(root, Vector3(4.5, 0, -18.5), Color(0.9, 0.3, 0.5))
+	Props.trash_can(root, Vector3(-6, 0, 16), Color(0.9, 0.3, 0.5))
+	Props.vending(root, Vector3(22.9, 0, 12.5), PI / 2, Color(0.95, 0.5, 0.1))
 	Art.clouds(root, Color(1.0, 0.85, 1.0))
 
 	return {

@@ -189,13 +189,16 @@ static func hoop(parent: Node, pos: Vector3, rot_y := 0.0) -> Node3D:
 	return r
 
 
-static func car(parent: Node, pos: Vector3, color: Color, rot_y := 0.0) -> Node3D:
-	var r := _make(parent, "car", pos, rot_y, Vector3(2.0, 1.45, 4.3))
+## A car, or a minivan with van = true (taller, longer cabin).
+static func car(parent: Node, pos: Vector3, color: Color, rot_y := 0.0, van := false) -> Node3D:
+	var cab_h := 0.95 if van else 0.55
+	var cab_len := 3.3 if van else 2.2
+	var r := _make(parent, "car", pos, rot_y, Vector3(2.0, 0.9 + cab_h, 4.3))
 	_b(r, Vector3(1.95, 0.6, 4.2), Vector3(0, 0.6, 0), color)
 	_b(r, Vector3(1.97, 0.12, 4.22), Vector3(0, 0.36, 0), color.darkened(0.35))
-	_b(r, Vector3(1.75, 0.55, 2.2), Vector3(0, 1.17, 0.25), color.lightened(0.05))
-	_glass(r, Vector3(1.77, 0.4, 2.05), Vector3(0, 1.18, 0.25))
-	var shield := _glass(r, Vector3(1.65, 0.05, 0.75), Vector3(0, 1.12, -1.05))
+	_b(r, Vector3(1.75, cab_h, cab_len), Vector3(0, 0.9 + cab_h * 0.5, 0.25 + (0.4 if van else 0.0)), color.lightened(0.05))
+	_glass(r, Vector3(1.77, cab_h * 0.7, cab_len - 0.15), Vector3(0, 0.95 + cab_h * 0.5, 0.25 + (0.4 if van else 0.0)))
+	var shield := _glass(r, Vector3(1.65, 0.05, 0.75), Vector3(0, 0.82 + cab_h * 0.55, -1.05 + (-0.3 if van else 0.0)))
 	shield.rotation.x = 0.85
 	for x in [-0.95, 0.95]:
 		for z in [-1.35, 1.35]:
@@ -435,7 +438,7 @@ static func door(parent: Node, pos: Vector3, w := 1.2, h := 2.3, rot_y := 0.0, c
 ## Flat roof with a parapet, AC units and vents.
 static func roof(parent: Node, center: Vector3, size: Vector2, color := Color(0.5, 0.5, 0.52)) -> Node3D:
 	var r := _make(parent, "roof", center)
-	_b(r, Vector3(size.x, 0.25, size.y), Vector3.ZERO, color, "concrete")
+	_b(r, Vector3(size.x, 0.25, size.y), Vector3.ZERO, color)
 	var trim := color.darkened(0.3)
 	for z in [-size.y * 0.5, size.y * 0.5]:
 		_b(r, Vector3(size.x + 0.3, 0.55, 0.3), Vector3(0, 0.25, z), trim)

@@ -2,7 +2,15 @@
 
 A goofy low-poly, first-person extraction game made in Godot 4. You're a shady card dealer: deploy to a local hangout, "trade" kids out of their best trading cards, fight off the angry parents with fists and swords, and **extract** before time runs out. Then sell your haul from the Shady Van and gear up for the next run.
 
+Or skip the hustle and hold the **Rec Center** against endless waves of parents in **Wave Mode**, armed with cartoon toy blasters.
+
 ![An angry dad spots you](screenshot.png)
+
+| Wave Mode: the Rec Center gym | Paintball vs. Angry Dads |
+| --- | --- |
+| ![The Rec Center arena](screenshot_arena.png) | ![Paintball Rifle in action](screenshot_waves.png) |
+| **Principal Grimsby (boss)** | **Wave 2: the throwers arrive** |
+| ![Principal Grimsby winds up his megaphone](screenshot_boss.png) | ![Little League Coach and Water Balloon Mom](screenshot_wave_banner.png) |
 
 | Sunnyvale Playground | Friday Night Locals |
 | --- | --- |
@@ -95,6 +103,43 @@ and a chaperone mom hovering nearby. Every raid also rolls one modifier, shown u
 Patrolling guards and chaperones leave you alone until you stir things up (heat), or until they see
 you scam someone.
 
+## Wave Mode: Rec Center Showdown
+
+Pick **Rec Center Showdown** on the hideout's DEPLOY tab (free). You defend the Sunnyvale Rec
+Center gym against waves of adults pouring in through the doors. Clear a wave to get a cash bonus,
+some health and an ammo restock, then the next, bigger wave arrives. Every 5th wave brings the boss,
+**Principal Grimsby**: a slow heavy swing, a telegraphed megaphone blast ("DETENTION!!") and
+hall-monitor backup. The run ends when you're knocked out or quit, and your best wave is saved.
+Cash is banked as you earn it, so you never lose anything you owned.
+
+| Input (Wave Mode) | Action |
+| --- | --- |
+| Left click | Fire (hold for the Paintball Rifle and the Soaker) |
+| Right click | Aim: tighter spread, slight zoom |
+| R | Reload |
+| 1-5 / mouse wheel | Switch blaster |
+
+Movement is the same as in raids, so bunny hopping and sliding work there too. Headshots **BONK**
+for +50% damage. Knocked-out adults sometimes drop ammo boxes and juice boxes.
+
+| Blaster | Price | Role |
+| --- | --- | --- |
+| Foam Dart Pistol | free | Precise, never runs out of reserve ammo. Darts stick in the walls |
+| Super Soaker 3000 | $150 | Short-range stream; soaked adults slow down |
+| Paintball Rifle | $300 | Full-auto; painted adults take +20% damage |
+| Bubble Blunderbuss | $350 | Close-range burst with huge knockback |
+| Rubber Chicken Launcher | $600 | Arcing splash shot. BWAK! |
+
+The adults fight smarter here (and a bit in raids too):
+
+- they spread out and **surround** you instead of forming a line;
+- they **weave** when you aim at them and sometimes **sidestep** after being hit;
+- they notice when they're **stuck** and walk around the obstacle.
+
+New ranged adults show up from wave 2: the **Little League Coach** (fastballs) and the **Water
+Balloon Mom** (lobbed balloons that splash). Both wind up visibly and aim where you're *going*, so
+change direction to dodge. Kids only watch from the bleachers: nothing can hit them.
+
 **Collector Orders.** The hideout's ORDERS tab has three orders (e.g. "Deliver 2 Holo+ cards:
 $480"). Filling one uses the cheapest qualifying stash cards and pays at least 1.5× their sell
 value. New orders roll after every raid.
@@ -115,7 +160,8 @@ Everything is still generated in code, with no imported assets:
 - **Faces with expressions.** Characters have eyes with pupils, noses, mouths and cheeks. Adults scowl when they spot you, and scammed kids look sad and cry real tears. Kids get varied hairstyles (bowl, spiky, bun, ponytail) or caps.
 - **Living levels.** Wind-swaying grass, round trees and bushes, drifting clouds, lamp posts, posters, balloons and streamers.
 - **Effects.** Hit sparks, dizzy stars over stunned and KO'd adults, gold sparkles around the whale, dust motes indoors, and pulsing extract beams.
-- **Graphics quality** (Settings): **High** or **Low (faster)**. Low turns off outlines, shadows and ambient occlusion, cuts grass to 20% and particles to 40%. It applies from the next raid and is saved.
+- **Detailed levels** built from a prop kit of 26 kinds: chain-link fences, a school with a roof, windows, doors and a flagpole, picnic tables, cars and a minivan, a school bus, a bus shelter, vending machines, arcade cabinets, storefronts with glass and awnings, a mall skylight, ceiling lights, gym mats, bleachers and more.
+- **Graphics quality** (Settings): **High** or **Low (faster)**. Low turns off outlines, shadows, ambient occlusion, floor reflections and light shafts, cuts grass to 20% and particles to 40%, and keeps fewer paint splats. It applies from the next raid and is saved.
 
 ## The AI
 
@@ -162,6 +208,8 @@ There are also some optional skills: `/speckit-clarify`, `/speckit-analyze`, `/s
 - `scripts/main.gd`: hideout and raid lifecycle, spawning, scams and witnesses, AI coordination (attack tokens, radio), extraction.
 - `scripts/levels.gd`: level geometry plus a navmesh baked at runtime; spawn, extract, patrol and hangout points.
 - `scripts/art.gd`: the art toolkit: quality profiles, toon materials, outlines, procedural textures, lighting moods, grass/trees/clouds and particle effects.
+- `scripts/props.gd`: the prop kit used by every level. `scripts/arena.gd`: the Rec Center gym (Wave Mode).
+- `scripts/waves.gd`: the Wave Mode director. `scripts/gunplay.gd`: blasters (ammo, firing, reload, aim). `scripts/rocket.gd`: the rubber chicken. `scripts/thrown.gd`: fastballs and water balloons. `scripts/pickup.gd`: ammo and juice boxes. `scripts/spectator.gd`: kids in the bleachers.
 - `scripts/rig.gd`: jointed humanoid with procedural walk/run cycles and blended action poses.
 - `scripts/player.gd`: first-person controller with Quake-style movement (air strafe, bhop, slide), combos, heavies, block/parry, pocket sand and camera feel.
 - `scripts/viewmodel.gd`: first-person arms, fists and swords, attack animations, sway and sword trails.

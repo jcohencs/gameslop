@@ -569,6 +569,8 @@ func _ready() -> void:
 	var tex_count_ok := true
 	var clouds_ok := true
 	var looks := {}
+	var props_ok := true
+	var prop_kinds := {}
 	var mood_ok := true
 	for id in gs.LOCATIONS:
 		main.start_raid(id)
@@ -583,6 +585,12 @@ func _ready() -> void:
 		clouds_ok = clouds_ok and main.level.find_child("Clouds", true, false) != null
 		for k in get_tree().get_nodes_in_group("kids"):
 			looks[k.rig.look] = true
+		var pc := Props.count(main.level)
+		var pk := Props.kinds(main.level)
+		prop_kinds.merge(pk)
+		if pc < 8 or pk.size() < 4:
+			props_ok = false
+			print("  props in %s: %d of %d kinds" % [id, pc, pk.size()])
 		for c in get_tree().get_nodes_in_group("kids") + get_tree().get_nodes_in_group("parents"):
 			var parts: Array = c.rig.find_children("*", "MeshInstance3D", true, false)
 			if parts.filter(func(mi): return mi.material_overlay != null).size() < 10:
@@ -593,6 +601,8 @@ func _ready() -> void:
 	check(mood_ok, "each raid applies its mood (sun color, shadows on High)")
 	check(tex_count_ok, "each location uses >= 2 procedural textures")
 	check(clouds_ok, "every location has clouds")
+	check(props_ok, "each raid location has >= 8 props of >= 4 kinds")
+	check(prop_kinds.size() >= 15, "the prop kit provides >= 15 kinds across the raid levels (%d)" % prop_kinds.size())
 	check(outline_ok, "High: all characters have ink outlines")
 	check(main.sun.light_color == Art.MOODS["default"]["sun_color"], "hideout returns to the default mood")
 
