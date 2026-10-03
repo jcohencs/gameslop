@@ -19,8 +19,13 @@ which:
 3. **Brawl.** Melee is punchy, fair and skill-based. Movement is part of combat.
 4. **Silly.** Cartoon satire throughout. The comedy comes from the situation, never from cruelty.
 
-**Out of scope** unless the constitution is amended: multiplayer, guns or ranged firearms,
-microtransactions, real-world brands or real card games by name, and photorealistic art.
+**Side mode.** Wave Mode ("Rec Center Showdown") is an optional arena mode next to the extraction
+loop: hold out against escalating waves of adults with cartoon toy blasters (Principle XIII). It
+serves the **Brawl** and **Silly** pillars.
+
+**Out of scope** unless the constitution is amended: multiplayer, realistic firearms (real guns,
+bullets, gore), ranged weapons inside extraction raids, microtransactions, real-world brands or
+real card games by name, and photorealistic art.
 
 ## Core Principles
 
@@ -239,11 +244,33 @@ Rationale: balance passes happen constantly, and one place to tune keeps them fa
 Rationale: there is no manual QA team. The smoke test is what proves a change works and keeps old
 features working.
 
+### XIII. Wave Mode Is a Cartoon Side Hustle
+
+- Wave Mode is separate from raids. It MUST NOT change raid rules, and raids stay melee-only.
+- Ranged weapons exist only in Wave Mode and MUST be obvious toys: foam darts, water, paint,
+  bubbles, rubber chickens. No realistic guns, bullets, blood or gore. Hits splat, soak and bonk.
+- Kids MUST NOT be hittable in Wave Mode either. Shots and splash MUST exclude the kid collision
+  layer, and any kids present are spectators behind barriers.
+- Each blaster MUST have a distinct role (Principle III applies to blasters too) and readable
+  feedback: muzzle flash, visible projectile or tracer, impact effect, hit marker and sound.
+- Waves MUST escalate visibly (count, types, a boss every few waves), and every enemy type MUST
+  telegraph its attacks. Ranged adults MUST wind up before throwing and MUST be dodgeable.
+- Rewards are meta-safe: cash earned in Wave Mode is banked as it is earned, and a run's end never
+  costs the player anything they owned before it.
+
+Rationale: a horde mode gives the brawling and movement systems a pure-combat playground without
+turning the hustle into a shooter or the satire into something mean.
+
 ## Content & Feature Standards
 
 - **New weapon**: a distinct role (Principle III), a viewmodel with attack animations, a sound, a
   shop tile with stat bars or a description, a combo and heavy definition, and smoke checks for
   hit and miss.
+- **New blaster** (Wave Mode): a distinct role (Principle XIII), data in the blaster table
+  (damage, rate, magazine, reload, spread, cost), a viewmodel with fire and reload animations, a
+  sound, a shop tile, and smoke checks for hit, ammo use and reload.
+- **New wave enemy**: everything a new adult type needs, plus its wave budget cost and first wave,
+  and for ranged enemies a telegraphed throw with a dodgeable projectile.
 - **New adult type**: unique stats and a visual silhouette (rig options), taunts, a heat tier or
   location it appears in, a wind-up attack, and smoke checks for perception and knockout.
 - **New location**: everything in Principle VI, a baked navmesh path check in the smoke test, a
@@ -263,7 +290,7 @@ features working.
   singletons need a justification in the feature plan.
 - All input actions MUST be defined in `GameState._setup_input()`.
 - Collision layers: 1 = world, 2 = player, 4 = kids, 8 = parents/adults. New layers MUST be added
-  to this list.
+  to this list. Player shots query layers 1 and 8 only; adult projectiles query layers 1 and 2.
 - AI pathing uses the navmesh baked at runtime by `Levels.build()`. Blocking geometry MUST be a
   static collider under the level's `NavigationRegion3D`.
 - Pausing uses the scene tree pause. HUD, hub, `Sfx` and the main controller run while paused;
@@ -274,7 +301,8 @@ features working.
   - comments explain why, not what;
   - match the surrounding code's style.
 - Performance: no per-frame allocation-heavy work in hot paths, AI perception throttled (currently
-  every 0.15 s), and a cap on simultaneous adults (currently 12).
+  every 0.15 s), a cap on simultaneous adults (currently 12 in raids, 14 in Wave Mode), and caps
+  on persistent decals such as paint splats and stuck darts.
 
 ## Quality Gates & Development Workflow
 
@@ -314,4 +342,4 @@ amendments are expected as the game grows.
   through data tables without amending this document. Rules without that marker need an
   amendment to change.
 
-**Version**: 2.0.0 | **Ratified**: 2026-10-03 | **Last Amended**: 2026-10-03
+**Version**: 2.1.0 | **Ratified**: 2026-10-03 | **Last Amended**: 2026-10-03
