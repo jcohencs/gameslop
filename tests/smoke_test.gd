@@ -338,8 +338,15 @@ func _ready() -> void:
 	for par in get_tree().get_nodes_in_group("parents"):
 		par.take_damage(99999.0)
 	gs.heat = 0.0
+	# Trades are chance-based; make sure the extract test carries at least one card.
+	if gs.binder.is_empty():
+		var spare = _tradeable_kid()
+		if spare == null:
+			spare = main.spawn_kid()
+			await frames(2)
+		gs.add_to_binder(spare.card)
 	var carried: int = gs.binder.size()
-	check(carried >= 1, "binder has cards")
+	check(carried >= 1, "binder has cards (%d)" % carried)
 	main.player.global_position = main.extracts[0]["pos"] + Vector3(0, 0.2, 0)
 	for i in 150:
 		await wait(0.1)
