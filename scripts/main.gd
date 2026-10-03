@@ -16,6 +16,9 @@ const WITNESS_RANGE := 9.0
 const RADIO_RANGE := 30.0
 
 var hub: CanvasLayer
+var env: Environment
+var sky_mat: ProceduralSkyMaterial
+var sun: DirectionalLight3D
 var hud: CanvasLayer
 var player: CharacterBody3D
 var level: Node3D
@@ -51,36 +54,28 @@ func _ready() -> void:
 
 
 func _build_environment() -> void:
-	var env := Environment.new()
+	env = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.3, 0.55, 0.95)
-	sky_mat.sky_horizon_color = Color(0.75, 0.85, 1.0)
-	sky_mat.ground_horizon_color = Color(0.6, 0.7, 0.6)
+	sky_mat = ProceduralSkyMaterial.new()
 	sky.sky_material = sky_mat
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.45
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 0.85
-	env.glow_enabled = true
-	env.glow_intensity = 0.4
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55, -35, 0)
-	sun.light_energy = 1.0
-	sun.shadow_enabled = true
+	sun = DirectionalLight3D.new()
 	sun.directional_shadow_max_distance = 60.0
+	sun.shadow_blur = 1.5
 	add_child(sun)
+	Art.apply_mood(env, sky_mat, sun, "default")
 
 
 # --- Hideout actions ---------------------------------------------------------
 
 func _show_hub() -> void:
+	Art.apply_mood(env, sky_mat, sun, "default")
 	hud.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	hub.show_hub()
@@ -168,6 +163,9 @@ func start_raid(id: String) -> void:
 	add_child(level)
 	level.process_mode = Node.PROCESS_MODE_PAUSABLE
 	layout = Levels.build(id, level)
+	Art.apply_mood(env, sky_mat, sun, id)
+	if layout.has("indoor"):
+		Art.dust_motes(level, layout["indoor"])
 
 	player = PlayerScript.new()
 	player.main = self
@@ -231,6 +229,13 @@ func _add_extract(info: Dictionary) -> void:
 	beam.material_override = bm
 	beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Shimmer: the beam breathes and the ring pulses so extracts read from afar.
+	var pulse := node.create_tween().set_loops()
+	pulse.tween_property(bm, "albedo_color:a", 0.55, 0.7).set_trans(Tween.TRANS_SINE)
+	pulse.parallel().tween_property(ring, "scale", Vector3(1.08, 1, 1.08), 0.7).set_trans(Tween.TRANS_SINE)
+	pulse.tween_property(bm, "albedo_color:a", 0.18, 0.7).set_trans(Tween.TRANS_SINE)
+	pulse.parallel().tween_property(ring, "scale", Vector3.ONE, 0.7).set_trans(Tween.TRANS_SINE)
+	node.set_meta("pulse", pulse)
 	var label := Shapes.label(node, "", Vector3(0, 3.0, 0), Color(0.4, 1, 0.5), 64)
 	label.no_depth_test = true
 	label.fixed_size = true
@@ -555,12 +560,7 @@ func close_menus() -> void:
 func spawn_hit_spark(at: Vector3) -> void:
 	if level == null:
 		return
-	var s := Shapes.sphere(level, 0.12, Vector3.ZERO, Color(1, 0.9, 0.4))
-	s.material_override = Shapes.mat(Color(1, 0.9, 0.4), 4.0)
-	s.global_position = at
-	var tw := s.create_tween()
-	tw.tween_property(s, "scale", Vector3.ONE * 2.5, 0.1)
-	tw.tween_callback(s.queue_free)
+	Art.spark(level, at)
 
 
 func spawn_sand_cloud(at: Vector3, dir: Vector3) -> void:

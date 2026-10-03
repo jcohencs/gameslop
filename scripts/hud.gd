@@ -317,7 +317,11 @@ func refresh(delta: float, player: Node3D) -> void:
 		speed_label.text = "%d m/s%s" % [roundi(player.hspeed()), "  SLIDE" if player.sliding else ""]
 		speed_label.modulate.a = clampf((player.hspeed() - player.run_speed) / 1.5, 0.0, 1.0)
 	var low := 1.0 - gs.health / mh
-	(vignette.material as ShaderMaterial).set_shader_parameter("strength", clampf((low - 0.5) * 1.6, 0.0, 0.8) * (0.8 + 0.2 * sin(Time.get_ticks_msec() * 0.006)))
+	# Subtle constant cinematic vignette, deepening into a red pulse at low health.
+	var hurt := clampf((low - 0.5) * 1.6, 0.0, 0.8) * (0.8 + 0.2 * sin(Time.get_ticks_msec() * 0.006))
+	var vm := vignette.material as ShaderMaterial
+	vm.set_shader_parameter("strength", maxf(0.22, hurt))
+	vm.set_shader_parameter("tint", Color(0.0, 0.0, 0.05).lerp(Color(0.8, 0.0, 0.0), clampf(hurt / 0.3, 0.0, 1.0)))
 
 	binder_label.text = "BINDER %d/%d   $%d AT RISK" % [gs.binder.size(), gs.capacity(), gs.cards_value(gs.binder)]
 	if _binder_count != gs.binder.size():

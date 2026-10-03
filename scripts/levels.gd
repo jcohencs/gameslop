@@ -34,7 +34,7 @@ static func build(id: String, root: Node3D) -> Dictionary:
 
 # --- Shared bits -------------------------------------------------------------
 
-static func _ground(root: Node3D, size: float, color: Color) -> void:
+static func _ground(root: Node3D, size: float, color: Color, tex := "") -> void:
 	var ground := StaticBody3D.new()
 	ground.collision_layer = 1
 	root.add_child(ground)
@@ -48,15 +48,15 @@ static func _ground(root: Node3D, size: float, color: Color) -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(size, size)
 	mi.mesh = plane
-	mi.material_override = Shapes.mat(color)
+	mi.material_override = Art.textured(color, tex) if tex != "" else Shapes.mat(color)
 	ground.add_child(mi)
 
 
-static func _perimeter(root: Node3D, half: float, height: float, color: Color) -> void:
-	Shapes.solid_box(root, Vector3(half * 2, height, 0.4), Vector3(0, height / 2, -half), color)
-	Shapes.solid_box(root, Vector3(half * 2, height, 0.4), Vector3(0, height / 2, half), color)
-	Shapes.solid_box(root, Vector3(0.4, height, half * 2), Vector3(-half, height / 2, 0), color)
-	Shapes.solid_box(root, Vector3(0.4, height, half * 2), Vector3(half, height / 2, 0), color)
+static func _perimeter(root: Node3D, half: float, height: float, color: Color, tex := "") -> void:
+	Shapes.solid_box(root, Vector3(half * 2, height, 0.4), Vector3(0, height / 2, -half), color, 0.0, tex)
+	Shapes.solid_box(root, Vector3(half * 2, height, 0.4), Vector3(0, height / 2, half), color, 0.0, tex)
+	Shapes.solid_box(root, Vector3(0.4, height, half * 2), Vector3(-half, height / 2, 0), color, 0.0, tex)
+	Shapes.solid_box(root, Vector3(0.4, height, half * 2), Vector3(half, height / 2, 0), color, 0.0, tex)
 
 
 static func _sign(root: Node3D, text: String, pos: Vector3, color: Color, size := 120, rot_y := 0.0) -> void:
@@ -66,8 +66,7 @@ static func _sign(root: Node3D, text: String, pos: Vector3, color: Color, size :
 
 
 static func _tree(root: Node3D, pos: Vector3) -> void:
-	Shapes.solid_cylinder(root, 0.35, 3, pos + Vector3(0, 1.5, 0), Color(0.45, 0.3, 0.15))
-	Shapes.sphere(root, 2.0, pos + Vector3(0, 4, 0), Color(0.2, 0.5, 0.2))
+	Art.tree(root, pos)
 
 
 static func _car(root: Node3D, pos: Vector3, color: Color, rot_y := 0.0) -> void:
@@ -89,13 +88,13 @@ static func _table(root: Node3D, pos: Vector3, length: float, mat_color: Color) 
 
 static func _playground(root: Node3D) -> Dictionary:
 	var half := 30.0
-	_ground(root, 120, Color(0.24, 0.48, 0.2))
-	_perimeter(root, half, 2.2, Color(0.6, 0.6, 0.65))
-	Shapes.box(root, Vector3(18, 0.02, 12), Vector3(-14, 0.01, 12), Color(0.22, 0.22, 0.25))
+	_ground(root, 120, Color(0.36, 0.6, 0.28), "grass")
+	_perimeter(root, half, 2.2, Color(0.62, 0.62, 0.68), "concrete")
+	Shapes.box(root, Vector3(18, 0.02, 12), Vector3(-14, 0.01, 12), Color(0.55, 0.55, 0.6), "asphalt")
 	Shapes.box(root, Vector3(0.2, 0.03, 12), Vector3(-14, 0.02, 12), Color.WHITE)
 
 	# School building.
-	Shapes.solid_box(root, Vector3(30, 9, 8), Vector3(0, 4.5, -25.5), Color(0.75, 0.45, 0.35))
+	Shapes.solid_box(root, Vector3(30, 9, 8), Vector3(0, 4.5, -25.5), Color(0.95, 0.6, 0.5), 0.0, "brick")
 	Shapes.box(root, Vector3(3, 4, 0.2), Vector3(0, 2, -21.4), Color(0.35, 0.2, 0.12))
 	for x in [-11, -6, 6, 11]:
 		Shapes.box(root, Vector3(3, 2, 0.15), Vector3(x, 5.5, -21.45), Color(0.6, 0.85, 1.0))
@@ -128,14 +127,33 @@ static func _playground(root: Node3D) -> Dictionary:
 	Shapes.solid_box(root, Vector3(4.4, 0.15, 2.4), Vector3(-18, 2.4, -7), Color(0.2, 0.75, 0.3))
 
 	for b in [Vector3(-4, 0.25, 18), Vector3(4, 0.25, 18), Vector3(18, 0.25, -4)]:
-		Shapes.solid_box(root, Vector3(2.4, 0.5, 0.6), b, Color(0.55, 0.35, 0.2))
+		Shapes.solid_box(root, Vector3(2.4, 0.5, 0.6), b, Color(0.85, 0.6, 0.4), 0.0, "wood")
 	for t in [Vector3(-24, 0, 20), Vector3(-22, 0, -14), Vector3(24, 0, -10), Vector3(14, 0, 8),
 			Vector3(-6, 0, 24), Vector3(-26, 0, 2), Vector3(25, 0, 6)]:
 		_tree(root, t)
 
 	# Extraction props.
 	Shapes.solid_box(root, Vector3(2.6, 3, 9), Vector3(-26, 1.5, 24), Color(0.95, 0.75, 0.1)) # school bus
-	Shapes.solid_box(root, Vector3(2.4, 2.6, 4.5), Vector3(26, 1.3, 22), Color(0.95, 0.95, 1.0)) # ice cream truck
+	Shapes.solid_box(root, Vector3(2.4, 2.6, 4.5), Vector3(26, 1.3, 22), Color(0.88, 0.9, 0.96)) # ice cream truck
+	for side in [-1, 1]:
+		Shapes.box(root, Vector3(0.04, 0.35, 4.5), Vector3(26 + side * 1.21, 0.75, 22), Color(1.0, 0.45, 0.65))
+		Shapes.box(root, Vector3(0.04, 0.9, 1.8), Vector3(26 + side * 1.21, 1.75, 22.4), Color(0.45, 0.75, 0.95))
+		for wz in [20.4, 23.6]:
+			Shapes.cylinder(root, 0.4, 0.3, Vector3(26 + side * 1.2, 0.4, wz), Color(0.12, 0.12, 0.14)).rotation.z = PI / 2
+	Shapes.cylinder(root, 0.35, 0.9, Vector3(26, 3.05, 22), Color(0.85, 0.6, 0.3))
+	Shapes.sphere(root, 0.5, Vector3(26, 3.6, 22), Color(1.0, 0.6, 0.75))
+
+	# Dressing: swaying grass, bushes along the fence, lamp posts, clouds.
+	Art.grass(root, [Rect2(-29, -21, 58, 50)], [Rect2(-23.5, 5.5, 19, 13), Rect2(4.5, -6.5, 7, 7), Rect2(-16, -21, 32, 1.5)],
+		Color(0.35, 0.7, 0.3))
+	for x in range(-26, 27, 6):
+		Art.bush(root, Vector3(x, 0, 28.6))
+	for z in [-14, -4, 14]:
+		Art.bush(root, Vector3(-28.6, 0, z))
+		Art.bush(root, Vector3(28.6, 0, z))
+	for lp in [Vector3(-8, 0, 20), Vector3(10, 0, 20), Vector3(22, 0, -2), Vector3(-22, 0, -2)]:
+		Art.lamp_post(root, lp, false)
+	Art.clouds(root)
 
 	return {
 		"half": half,
@@ -156,18 +174,18 @@ static func _playground(root: Node3D) -> Dictionary:
 
 static func _locals(root: Node3D) -> Dictionary:
 	var half := 24.0
-	_ground(root, 100, Color(0.3, 0.3, 0.32)) # parking lot asphalt
-	_perimeter(root, half, 2.5, Color(0.45, 0.4, 0.35))
+	_ground(root, 100, Color(0.6, 0.6, 0.64), "asphalt") # parking lot
+	_perimeter(root, half, 2.5, Color(0.8, 0.78, 0.75), "concrete")
 
 	# Store floor and walls (x -15..15, z -16..6). Door gaps at the front and back.
-	var wall := Color(0.55, 0.2, 0.25)
-	Shapes.box(root, Vector3(30, 0.02, 22), Vector3(0, 0.01, -5), Color(0.36, 0.28, 0.22))
-	Shapes.solid_box(root, Vector3(0.4, 4, 22), Vector3(-15, 2, -5), wall)
-	Shapes.solid_box(root, Vector3(0.4, 4, 22), Vector3(15, 2, -5), wall)
-	Shapes.solid_box(root, Vector3(13, 4, 0.4), Vector3(-8.5, 2, 6), wall)
-	Shapes.solid_box(root, Vector3(13, 4, 0.4), Vector3(8.5, 2, 6), wall)
-	Shapes.solid_box(root, Vector3(13, 4, 0.4), Vector3(-8.5, 2, -16), wall)
-	Shapes.solid_box(root, Vector3(13, 4, 0.4), Vector3(8.5, 2, -16), wall)
+	var wall := Color(0.85, 0.45, 0.42)
+	Shapes.box(root, Vector3(30, 0.02, 22), Vector3(0, 0.01, -5), Color(0.75, 0.6, 0.45), "wood")
+	Shapes.solid_box(root, Vector3(0.4, 4, 22), Vector3(-15, 2, -5), wall, 0.0, "brick")
+	Shapes.solid_box(root, Vector3(0.4, 4, 22), Vector3(15, 2, -5), wall, 0.0, "brick")
+	Shapes.solid_box(root, Vector3(13, 4, 0.4), Vector3(-8.5, 2, 6), wall, 0.0, "brick")
+	Shapes.solid_box(root, Vector3(13, 4, 0.4), Vector3(8.5, 2, 6), wall, 0.0, "brick")
+	Shapes.solid_box(root, Vector3(13, 4, 0.4), Vector3(-8.5, 2, -16), wall, 0.0, "brick")
+	Shapes.solid_box(root, Vector3(13, 4, 0.4), Vector3(8.5, 2, -16), wall, 0.0, "brick")
 	Shapes.box(root, Vector3(30.4, 1.2, 0.5), Vector3(0, 4.6, 6), Color(0.15, 0.1, 0.2))
 	_sign(root, "DRAGON'S DEN GAMES", Vector3(0, 4.6, 6.3), Color(1, 0.75, 0.2), 150)
 	_sign(root, "FRIDAY NIGHT LOCALS\nentry: 1 binder", Vector3(0, 3.2, -15.7), Color(0.9, 0.9, 1.0), 110)
@@ -205,11 +223,26 @@ static func _locals(root: Node3D) -> Dictionary:
 	Shapes.solid_box(root, Vector3(3, 1.6, 1.6), Vector3(-6, 0.8, -19), Color(0.15, 0.4, 0.2))
 	Shapes.solid_box(root, Vector3(0.6, 2.4, 0.6), Vector3(-20, 1.2, 20), Color(0.2, 0.3, 0.6)) # bus stop pole
 
+	# Dressing: lot lamps (it's evening), tournament posters, folding chairs, clouds.
+	for lp in [Vector3(-18, 0, 9), Vector3(-6, 0, 9), Vector3(6, 0, 9), Vector3(18, 0, 9)]:
+		Art.lamp_post(root, lp)
+	var poster_cols := [Color(0.95, 0.3, 0.3), Color(0.3, 0.6, 1.0), Color(1.0, 0.8, 0.2), Color(0.6, 0.9, 0.4)]
+	for n in 4:
+		var px := -13.0 + n * 3.0 if n < 2 else 7.0 + (n - 2) * 3.0
+		Shapes.box(root, Vector3(1.6, 2.0, 0.05), Vector3(px, 2.0, 6.25), poster_cols[n])
+		Shapes.box(root, Vector3(1.2, 0.8, 0.06), Vector3(px, 2.3, 6.26), Color(0.98, 0.95, 0.9))
+	for z in [-11.0, -6.5, -2.0]:
+		for x in [-10.0, -7.0, -4.0, 4.0, 7.0, 10.0]:
+			for side in [-1.0, 1.0]:
+				Shapes.box(root, Vector3(0.45, 0.45, 0.45), Vector3(x, 0.23, z + side * 1.15), Color(0.3, 0.32, 0.36))
+	Art.clouds(root, Color(1.0, 0.82, 0.75))
+
 	return {
 		"half": half,
 		"patrol": [Vector3(0, 0, 2), Vector3(-11, 0, -4), Vector3(-11, 0, -13.5), Vector3(11, 0, -13.5), Vector3(11, 0, -4), Vector3(0, 0, -8.7)],
 		"pois": [Vector3(-7, 0, -9.3), Vector3(7, 0, -9.3), Vector3(-7, 0, -4.2), Vector3(7, 0, -4.2), Vector3(-7, 0, 0.2), Vector3(7, 0, 0.2), Vector3(11.5, 0, -1)],
 		"spawn": Vector3(0, 0.1, 18), "spawn_yaw": 0.0,
+		"indoor": AABB(Vector3(-15, 0, -16), Vector3(30, 4, 22)),
 		"kid_bounds": Rect2(-11, -14, 22, 17),
 		"extracts": [
 			{"name": "Mom's Minivan", "pos": Vector3(10.5, 0, 18.5)},
@@ -224,13 +257,13 @@ static func _locals(root: Node3D) -> Dictionary:
 
 static func _mall(root: Node3D) -> Dictionary:
 	var half := 26.0
-	_ground(root, 100, Color(0.5, 0.47, 0.43)) # tile
-	_perimeter(root, half, 6.0, Color(0.62, 0.6, 0.56))
+	_ground(root, 100, Color(0.58, 0.56, 0.6), "tiles")
+	_perimeter(root, half, 6.0, Color(0.74, 0.74, 0.76), "concrete")
 	# Checker tiles.
 	for x in range(-24, 24, 4):
 		for z in range(-24, 24, 4):
 			if posmod(int((x + z) / 4.0), 2) == 0:
-				Shapes.box(root, Vector3(4, 0.02, 4), Vector3(x + 2, 0.01, z + 2), Color(0.38, 0.36, 0.33))
+				Shapes.box(root, Vector3(4, 0.02, 4), Vector3(x + 2, 0.01, z + 2), Color(0.55, 0.52, 0.5), "tiles")
 
 	# Storefronts along the walls.
 	var shops := [["CINNABUN", Color(0.9, 0.6, 0.3)], ["HOT TOPIK", Color(0.2, 0.2, 0.2)],
@@ -266,12 +299,19 @@ static func _mall(root: Node3D) -> Dictionary:
 	_sign(root, "PHONE CASES", Vector3(7, 1.9, 0), Color(0.4, 1, 1), 60)
 	_sign(root, "SUNGLASSES", Vector3(-7, 1.9, 0), Color(1, 1, 0.4), 60)
 
+	# Dressing: planters with bushes around the court, clouds over the skylight.
+	for pos in [Vector3(-18, 0, -14), Vector3(18, 0, -14), Vector3(-18, 0, 14), Vector3(18, 0, 14)]:
+		Shapes.solid_box(root, Vector3(2.4, 0.7, 2.4), pos + Vector3(0, 0.35, 0), Color(0.75, 0.73, 0.7), 0.0, "concrete")
+		Art.bush(root, pos + Vector3(0, 0.6, 0), Color(0.25, 0.6, 0.3))
+	Art.clouds(root)
+
 	return {
 		"half": half,
 		"patrol": [Vector3(-18, 0, -18), Vector3(18, 0, -18), Vector3(18, 0, 18), Vector3(-18, 0, 18), Vector3(0, 0, -4.5), Vector3(0, 0, 4.5)],
 		"pois": [Vector3(-12, 0, -8.5), Vector3(-6, 0, -10.5), Vector3(6, 0, -10.5), Vector3(12, 0, -8.5), Vector3(-12, 0, 8.5),
 			Vector3(6, 0, 10.5), Vector3(0, 0, 4), Vector3(-16, 0, -20), Vector3(0, 0, -20)],
 		"spawn": Vector3(-22, 0.1, 18), "spawn_yaw": -PI * 0.25,
+		"indoor": AABB(Vector3(-24, 0, -24), Vector3(48, 5, 48)),
 		"kid_bounds": Rect2(-20, -19, 40, 38),
 		"extracts": [
 			{"name": "Parking Garage", "pos": Vector3(23, 0, -20)},
@@ -286,16 +326,16 @@ static func _mall(root: Node3D) -> Dictionary:
 
 static func _pizza(root: Node3D) -> Dictionary:
 	var half := 24.0
-	_ground(root, 100, Color(0.55, 0.15, 0.15))
-	_perimeter(root, half, 5.0, Color(0.3, 0.22, 0.55))
+	_ground(root, 100, Color(0.85, 0.25, 0.25), "tiles")
+	_perimeter(root, half, 5.0, Color(0.55, 0.4, 0.9), "brick")
 	# Checkerboard party floor.
 	for x in range(-24, 24, 3):
 		for z in range(-24, 24, 3):
 			if posmod(int((x + z) / 3.0), 2) == 0:
-				Shapes.box(root, Vector3(3, 0.02, 3), Vector3(x + 1.5, 0.01, z + 1.5), Color(0.95, 0.8, 0.2))
+				Shapes.box(root, Vector3(3, 0.02, 3), Vector3(x + 1.5, 0.01, z + 1.5), Color(1.0, 0.85, 0.25), "tiles")
 
 	# Stage with the animatronic band (north).
-	Shapes.solid_box(root, Vector3(12, 0.6, 4), Vector3(0, 0.3, -21.5), Color(0.45, 0.2, 0.1))
+	Shapes.solid_box(root, Vector3(12, 0.6, 4), Vector3(0, 0.3, -21.5), Color.WHITE, 0.0, "carpet")
 	for i in 3:
 		var x := -4.0 + i * 4.0
 		var bot := Shapes.solid_cylinder(root, 0.5, 1.6, Vector3(x, 1.4, -21.5), Color.from_hsv(i * 0.3, 0.6, 0.8))
@@ -351,12 +391,28 @@ static func _pizza(root: Node3D) -> Dictionary:
 	Shapes.box(root, Vector3(3, 2.6, 0.2), Vector3(-19, 1.3, 23.7), Color(0.4, 0.5, 0.6))
 	_sign(root, "EXIT", Vector3(-19, 3.0, 23.6), Color(1, 0.3, 0.3), 100, PI)
 
+	# Dressing: balloon bunches and streamers along the walls, clouds.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 99
+	for pos in [Vector3(-6, 0, -18.5), Vector3(6, 0, -18.5), Vector3(-6, 0, 12), Vector3(8, 0, 12), Vector3(-21, 0, 10)]:
+		for i in 4:
+			var b := Shapes.sphere(root, 0.32, pos + Vector3(rng.randf_range(-0.5, 0.5), 2.4 + rng.randf() * 0.7, rng.randf_range(-0.5, 0.5)),
+				Color.from_hsv(rng.randf(), 0.75, 1.0))
+			b.scale = Vector3(1, 1.2, 1)
+		Shapes.box(root, Vector3(0.02, 2.4, 0.02), pos + Vector3(0, 1.2, 0), Color(0.9, 0.9, 0.9))
+	for i in 12:
+		var x := -22.0 + i * 4.0
+		var streamer := Shapes.box(root, Vector3(3.8, 0.25, 0.04), Vector3(x, 4.4, -23.7), Color.from_hsv(i / 12.0, 0.7, 1.0))
+		streamer.rotation.z = 0.12 if i % 2 == 0 else -0.12
+	Art.clouds(root, Color(1.0, 0.85, 1.0))
+
 	return {
 		"half": half,
 		"patrol": [Vector3(0, 0, 0), Vector3(6, 0, -12), Vector3(14, 0, 8), Vector3(4, 0, 18), Vector3(-6, 0, 10), Vector3(-6, 0, -18)],
 		"pois": [Vector3(-3, 0, -13), Vector3(3, 0, -8.3), Vector3(0, 0, -18.5), Vector3(11.5, 0, -2), Vector3(15.5, 0, 4),
 			Vector3(14, 0, 15.5), Vector3(-15, 0, -4), Vector3(-12, 0, 0), Vector3(-4, 0, 12)],
 		"spawn": Vector3(0, 0.1, 20), "spawn_yaw": 0.0,
+		"indoor": AABB(Vector3(-23, 0, -23), Vector3(46, 4.5, 46)),
 		"kid_bounds": Rect2(-20, -19, 40, 37),
 		"extracts": [
 			{"name": "Kitchen Back Door", "pos": Vector3(20.5, 0, -19)},

@@ -541,6 +541,125 @@ func _ready() -> void:
 	main._end_raid(false, "test")
 	await idle(2)
 
+	# --- Graphics overhaul (specs/003-graphics-overhaul) ---
+	gs.cash = 5000
+	gs.graphics_quality = "high"
+	# Textures (SC-003).
+	var tex_ok := true
+	for tn in Art.TEXTURES:
+		var t: ImageTexture = Art.tex(tn)
+		if t == null or t.get_width() != Art.TEX_SIZE or Art.tex(tn) != t:
+			tex_ok = false
+	check(Art.TEXTURES.size() >= 7 and tex_ok, "7 procedural textures generated + cached")
+	# Moods distinct (SC-002).
+	var mood_keys := {}
+	for id in gs.LOCATIONS:
+		var m: Dictionary = Art.MOODS[id]
+		mood_keys[str(m["sun_color"]) + str(m["sky_top"])] = true
+	check(mood_keys.size() == gs.LOCATIONS.size(), "every location has a distinct lighting mood")
+	# Per-location: mood applied, >= 2 textures, clouds; High: outlines + shadows.
+	var outline_ok := true
+	var tex_count_ok := true
+	var clouds_ok := true
+	var looks := {}
+	var mood_ok := true
+	for id in gs.LOCATIONS:
+		main.start_raid(id)
+		await frames(3)
+		mood_ok = mood_ok and main.sun.light_color == Art.MOODS[id]["sun_color"] and main.sun.shadow_enabled
+		var used := {}
+		for mi in main.level.find_children("*", "MeshInstance3D", true, false):
+			var mat = mi.material_override
+			if mat is StandardMaterial3D and mat.albedo_texture != null:
+				used[mat.albedo_texture.get_rid()] = true
+		tex_count_ok = tex_count_ok and used.size() >= 2
+		clouds_ok = clouds_ok and main.level.find_child("Clouds", true, false) != null
+		for k in get_tree().get_nodes_in_group("kids"):
+			looks[k.rig.look] = true
+		for c in get_tree().get_nodes_in_group("kids") + get_tree().get_nodes_in_group("parents"):
+			var parts: Array = c.rig.find_children("*", "MeshInstance3D", true, false)
+			if parts.filter(func(mi): return mi.material_overlay != null).size() < 10:
+				outline_ok = false
+		main._end_raid(false, "test")
+		await idle(2)
+		gs.cash = 5000
+	check(mood_ok, "each raid applies its mood (sun color, shadows on High)")
+	check(tex_count_ok, "each location uses >= 2 procedural textures")
+	check(clouds_ok, "every location has clouds")
+	check(outline_ok, "High: all characters have ink outlines")
+	check(main.sun.light_color == Art.MOODS["default"]["sun_color"], "hideout returns to the default mood")
+
+	# Playground grass at High, then Low quality profile (SC-005).
+	main.start_raid("playground")
+	await frames(3)
+	var grass_high: int = main.level.find_child("Grass", true, false).multimesh.instance_count
+	check(grass_high == Art.QUALITY["high"]["grass"], "High grass density (%d tufts)" % grass_high)
+	# Expressions (SC-004) + effects (SC-006).
+	for par in get_tree().get_nodes_in_group("parents"):
+		par.global_position = Vector3(-25, 0.1, -25)
+	var angry = main.spawn_parent("dad")
+	await frames(1)
+	angry.global_position = main.player.global_position + (-main.player.global_transform.basis.z) * 5.0
+	angry.look_at(main.player.global_position, Vector3.UP)
+	angry.rotation.x = 0
+	angry.begin_chase(main.player.global_position)
+	await wait(0.5)
+	check(angry.rig.mood == "angry", "alerted adult turns angry within 0.5 s")
+	angry.take_damage(1.0, Vector3.FORWARD, 2.0, 1.5)
+	check(angry.dizzy != null and is_instance_valid(angry.dizzy), "stunned adult gets dizzy stars")
+	angry.take_damage(99999.0)
+	check(angry.dizzy != null, "KO'd adult keeps dizzy stars")
+	var sad_kid = _tradeable_kid()
+	sad_kid.cry()
+	check(sad_kid.rig.mood == "sad" and sad_kid.tears != null and sad_kid.tears.emitting, "crying kid is sad with tears")
+	check(looks.size() >= 4, "kids show varied hair/looks (%d across 41 kids)" % looks.size())
+	var whale = get_tree().get_nodes_in_group("kids").filter(func(k): return k.whale)[0]
+	check(whale.find_child("Sparkles", true, false) != null, "whale has gold sparkles")
+	var sparks_before: int = main.level.find_children("Spark", "CPUParticles3D", true, false).size()
+	main.spawn_hit_spark(main.player.global_position + Vector3(0, 1, -1))
+	check(main.level.find_children("Spark", "CPUParticles3D", true, false).size() > sparks_before, "hit spawns a spark burst")
+	var ex_node: Node3D = main.extracts[0]["label"].get_parent()
+	check(ex_node.has_meta("pulse") and (ex_node.get_meta("pulse") as Tween).is_running(), "extract beams pulse")
+	main._end_raid(false, "test")
+	await idle(2)
+	gs.cash = 5000
+	main.start_raid("locals")
+	await frames(3)
+	var dust := main.level.find_child("DustMotes", true, false) as CPUParticles3D
+	var dust_high: int = dust.amount if dust else 0
+	check(dust != null, "indoor location has dust motes")
+	main._end_raid(false, "test")
+	await idle(2)
+
+	# Low quality.
+	gs.graphics_quality = "low"
+	gs.save_settings()
+	gs.graphics_quality = "high"
+	gs.load_settings()
+	check(gs.graphics_quality == "low", "graphics quality persists in settings")
+	gs.cash = 5000
+	main.start_raid("locals")
+	await frames(3)
+	var dust_low: int = (main.level.find_child("DustMotes", true, false) as CPUParticles3D).amount
+	var any_outline := false
+	for c in get_tree().get_nodes_in_group("kids") + get_tree().get_nodes_in_group("parents"):
+		for mi in c.rig.find_children("*", "MeshInstance3D", true, false):
+			if mi.material_overlay != null:
+				any_outline = true
+	check(not any_outline and not main.sun.shadow_enabled, "Low: no outlines, no shadows")
+	check(dust_low <= dust_high * 0.5, "Low: particles cut by at least half (%d vs %d)" % [dust_low, dust_high])
+	main._end_raid(false, "test")
+	await idle(2)
+	gs.cash = 5000
+	main.start_raid("playground")
+	await frames(3)
+	var grass_low: int = main.level.find_child("Grass", true, false).multimesh.instance_count
+	check(grass_low <= grass_high * 0.25, "Low: grass <= 25%% of High (%d vs %d)" % [grass_low, grass_high])
+	main._end_raid(false, "test")
+	await idle(2)
+	gs.graphics_quality = "high"
+	gs.save_settings()
+
 	gs.cash = gs.WIN_COST
 	main.hub_win()
 	check(gs.won, "win")

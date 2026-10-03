@@ -2,13 +2,17 @@
 
 A goofy low-poly, first-person extraction game made in Godot 4. You're a shady card dealer: deploy to a local hangout, "trade" kids out of their best trading cards, fight off the angry parents with fists and swords, and **extract** before time runs out. Then sell your haul from the Shady Van and gear up for the next run.
 
-![Parents chasing you down](screenshot.png)
+![An angry dad spots you](screenshot.png)
+
+| Sunnyvale Playground | Friday Night Locals |
+| --- | --- |
+| ![Playground](screenshot_playground.png) | ![Locals at golden hour](screenshot_locals.png) |
+| **Pizza Party Palace** | **Seeing stars** |
+| ![Pizza Party Palace](screenshot_pizza.png) | ![A stunned dad with dizzy stars](screenshot_dizzy.png) |
 
 | The hideout | Trading |
 | --- | --- |
 | ![Stash](screenshot_hideout.png) | ![Trade](screenshot_trade.png) |
-
-![Pizza Party Palace: the ball pit](screenshot_pizza.png)
 
 ## Running
 
@@ -101,6 +105,18 @@ value. New orders roll after every raid.
 
 **Win** by buying your own Card Shop Empire for $3000.
 
+## Graphics
+
+Everything is still generated in code, with no imported assets:
+
+- **Cartoon rendering.** Everything uses cel-shaded (banded) lighting with a soft rim light, and characters get ink outlines.
+- **Lighting moods** per location: noon at the Playground, golden hour at the Locals, a purple party glow at Pizza Palace and cool daylight at the Mall. Each has its own sun, sky, fog and color grading.
+- **Procedural textures** are generated at startup: grass, asphalt, floor tiles, wood, brick, carpet and concrete.
+- **Faces with expressions.** Characters have eyes with pupils, noses, mouths and cheeks. Adults scowl when they spot you, and scammed kids look sad and cry real tears. Kids get varied hairstyles (bowl, spiky, bun, ponytail) or caps.
+- **Living levels.** Wind-swaying grass, round trees and bushes, drifting clouds, lamp posts, posters, balloons and streamers.
+- **Effects.** Hit sparks, dizzy stars over stunned and KO'd adults, gold sparkles around the whale, dust motes indoors, and pulsing extract beams.
+- **Graphics quality** (Settings): **High** or **Low (faster)**. Low turns off outlines, shadows and ambient occlusion, cuts grass to 20% and particles to 40%. It applies from the next raid and is saved.
+
 ## The AI
 
 - Parents and guards have a **vision cone with line of sight** and can **hear** you sprinting and fighting. Hoodie upgrades shrink how far they can see you.
@@ -145,6 +161,7 @@ There are also some optional skills: `/speckit-clarify`, `/speckit-analyze`, `/s
 - `scripts/sfx.gd`: autoload with procedurally synthesized sound effects.
 - `scripts/main.gd`: hideout and raid lifecycle, spawning, scams and witnesses, AI coordination (attack tokens, radio), extraction.
 - `scripts/levels.gd`: level geometry plus a navmesh baked at runtime; spawn, extract, patrol and hangout points.
+- `scripts/art.gd`: the art toolkit: quality profiles, toon materials, outlines, procedural textures, lighting moods, grass/trees/clouds and particle effects.
 - `scripts/rig.gd`: jointed humanoid with procedural walk/run cycles and blended action poses.
 - `scripts/player.gd`: first-person controller with Quake-style movement (air strafe, bhop, slide), combos, heavies, block/parry, pocket sand and camera feel.
 - `scripts/viewmodel.gd`: first-person arms, fists and swords, attack animations, sway and sword trails.

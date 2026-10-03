@@ -64,6 +64,7 @@ var data: Dictionary
 var reach := DEFAULT_REACH
 var windup_time := DEFAULT_WINDUP
 var whale_kid: Node = null       # chaperones shadow their whale
+var dizzy: Node3D = null         # dizzy-stars effect while staggered/KO
 var hp: float
 var radius: float
 var player: Node3D
@@ -216,6 +217,13 @@ func _set_state(s: State) -> void:
 		_release_token()
 	state = s
 	state_t = 0.0
+	# Cartoon dizzy stars while staggered or knocked out.
+	if s in [State.STAGGER, State.KO]:
+		if dizzy == null:
+			dizzy = Art.dizzy_stars(self, data["height"] + 0.2)
+	elif dizzy:
+		dizzy.queue_free()
+		dizzy = null
 	match s:
 		State.WINDUP:
 			rig.play("windup", windup_time + 0.05, 0.12)
@@ -433,6 +441,8 @@ func _physics_process(delta: float) -> void:
 				_spot_player()
 			last_seen = player.global_position
 			memory_timer = MEMORY
+		# Faces mirror the AI: furious while hunting you down.
+		rig.set_mood("angry" if (awareness() == 2 or is_fighting()) else "neutral")
 
 	var speed: float = data["speed"]
 	var desired := Vector3.ZERO

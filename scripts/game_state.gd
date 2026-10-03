@@ -134,6 +134,7 @@ var mouse_sensitivity := 0.3   # 0.05 .. 1.0
 var invert_y := false
 var fov := 85.0
 var volume := 0.8
+var graphics_quality := "high"   # "high" or "low" (see Art.QUALITY)
 
 # Meta (persists between raids)
 var cash: int
@@ -583,6 +584,7 @@ func save_settings() -> void:
 	cfg.set_value("input", "mouse_sensitivity", mouse_sensitivity)
 	cfg.set_value("input", "invert_y", invert_y)
 	cfg.set_value("video", "fov", fov)
+	cfg.set_value("video", "graphics_quality", graphics_quality)
 	cfg.set_value("audio", "volume", volume)
 	cfg.save(SETTINGS_PATH)
 	_apply_volume()
@@ -594,6 +596,7 @@ func load_settings() -> void:
 		mouse_sensitivity = cfg.get_value("input", "mouse_sensitivity", mouse_sensitivity)
 		invert_y = cfg.get_value("input", "invert_y", invert_y)
 		fov = cfg.get_value("video", "fov", fov)
+		graphics_quality = cfg.get_value("video", "graphics_quality", graphics_quality)
 		volume = cfg.get_value("audio", "volume", volume)
 	_apply_volume()
 

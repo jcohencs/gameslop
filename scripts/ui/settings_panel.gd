@@ -15,6 +15,19 @@ func _ready() -> void:
 	_slider(v, "Field of view", 65.0, 110.0, 1.0, GameState.fov,
 		func(x): GameState.fov = x, func(x): return "%d" % x)
 	_slider(v, "Volume", 0.0, 1.0, 0.01, GameState.volume, _set_volume, func(x): return "%d%%" % roundi(x * 100.0))
+	var gfx_row := UI.hbox(10)
+	v.add_child(gfx_row)
+	var gfx_l := UI.label("Graphics quality", 17, UI.TEXT_DIM)
+	gfx_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gfx_row.add_child(gfx_l)
+	var gfx := OptionButton.new()
+	gfx.add_item("High", 0)
+	gfx.add_item("Low (faster)", 1)
+	gfx.selected = 0 if GameState.graphics_quality == "high" else 1
+	gfx.focus_mode = Control.FOCUS_NONE
+	gfx.item_selected.connect(_set_quality)
+	gfx_row.add_child(gfx)
+	v.add_child(UI.label("Graphics quality applies from the next raid.", 13, UI.TEXT_DIM))
 	var inv := CheckBox.new()
 	inv.text = "Invert mouse Y"
 	inv.button_pressed = GameState.invert_y
@@ -49,6 +62,10 @@ func _slider(parent: Control, title: String, lo: float, hi: float, step: float, 
 func _on_slider(x: float, setter: Callable, fmt: Callable, val_l: Label) -> void:
 	setter.call(x)
 	val_l.text = fmt.call(x)
+
+
+func _set_quality(index: int) -> void:
+	GameState.graphics_quality = "high" if index == 0 else "low"
 
 
 func _set_volume(x: float) -> void:

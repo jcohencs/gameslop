@@ -26,6 +26,7 @@ var wary := 0.0                         # > 0 after witnessing a scam
 var cheering := 0.0
 var label: Label3D
 var rig: Rig
+var tears: CPUParticles3D = null
 var agent: NavigationAgent3D
 var player: Node3D
 var think := 0.0
@@ -42,10 +43,13 @@ func _ready() -> void:
 		var r: Dictionary = GameState.RARITIES[4]
 		card["rarity"] = 4
 		card["value"] = randi_range(r["min"], r["max"])
-	var opts := {"backpack": Color.from_hsv(randf(), 0.5, 0.6)}
-	if randf() < 0.5:
+	var opts := {"backpack": Color.from_hsv(randf(), 0.5, 0.6), "kid": true}
+	if randf() < 0.75:
 		opts["hair"] = Color.from_hsv(randf_range(0.03, 0.12), 0.6, randf_range(0.15, 0.9))
-	elif randf() < 0.5:
+		if randf() < 0.15:
+			opts["hair"] = Color.from_hsv(randf(), 0.7, 0.9)  # dyed hair
+		opts["hair_style"] = ["bowl", "spiky", "bun", "ponytail"][randi() % 4]
+	else:
 		opts["cap"] = Color.from_hsv(randf(), 0.7, 0.8)
 	if randf() < 0.2:
 		opts["glasses"] = true
@@ -63,6 +67,7 @@ func _ready() -> void:
 	label = Shapes.label(self, "", Vector3(0, 1.5, 0), Color.WHITE, 26)
 	if whale:
 		_add_whale_glow()
+		Art.sparkles(self)
 	_refresh_label()
 	_pick_target()
 
@@ -145,6 +150,9 @@ func cry() -> void:
 	state = State.CRYING
 	state_timer = 8.0
 	rig.play("cry")
+	rig.set_mood("sad")
+	if tears == null:
+		tears = Art.tears(rig.head, rig._brow_base_y - 0.08)
 	_refresh_label()
 	cried.emit(self)
 	Sfx.play_at("fail", global_position + Vector3.UP, get_parent(), -8.0)
@@ -153,6 +161,9 @@ func cry() -> void:
 func become_scammed() -> void:
 	state = State.SCAMMED
 	state_timer = 20.0
+	rig.set_mood("sad")
+	if tears:
+		tears.emitting = false
 	rig.base_shirt = rig.base_shirt.lerp(Color(0.4, 0.4, 0.45), 0.6)
 	rig.shirt_mat.albedo_color = rig.base_shirt
 	rig.play("cry", 1.5)
