@@ -667,6 +667,8 @@ func _ready() -> void:
 	gs.graphics_quality = "high"
 	gs.save_settings()
 
+	await _test_waves()
+
 	gs.cash = gs.WIN_COST
 	main.hub_win()
 	check(gs.won, "win")
@@ -675,6 +677,331 @@ func _ready() -> void:
 	await idle(10)
 	print("\nSMOKE TEST: %s (%d failures)" % ["OK" if failures == 0 else "FAILED", failures])
 	get_tree().quit(1 if failures else 0)
+
+
+# --- Wave Mode (specs/004) -----------------------------------------------------
+
+const WavesScript := preload("res://scripts/waves.gd")
+const KidScript := preload("res://scripts/kid.gd")
+const ParentScript := preload("res://scripts/parent.gd")
+
+
+## KO every adult and stop the director from feeding more, so a test owns the gym.
+func _clear_gym() -> void:
+	main.director.queue.clear()
+	main.director.timer = 9999.0
+	for p in get_tree().get_nodes_in_group("parents"):
+		p.take_damage(999999.0)
+	await frames(2)
+	for t in get_tree().get_nodes_in_group("thrown"):
+		t.queue_free()
+	main.director.timer = 9999.0
+
+
+func _aim_at(target: Vector3) -> void:
+	var pl = main.player
+	var to: Vector3 = target - pl.camera.global_position
+	pl.rotation.y = atan2(-to.x, -to.z)
+	pl.head.rotation.x = atan2(to.y, Vector2(to.x, to.z).length())
+
+
+func _front(dist: float) -> Vector3:
+	var pl = main.player
+	return pl.global_position - pl.global_transform.basis.z * dist
+
+
+func _test_waves() -> void:
+	var gs := GameState
+	gs.cash = 5000
+	for id in gs.BLASTER_ORDER:
+		main.hub_buy_blaster(id)
+	var all_owned := true
+	for id in gs.BLASTER_ORDER:
+		all_owned = all_owned and gs.blasters_owned[id]
+	check(all_owned, "buy every blaster at the van")
+	gs.save_game()
+	gs.load_game()
+	check(gs.blasters_owned["chicken"] and gs.blasters_owned["dart"], "blasters survive save/load")
+
+	# SC-003: budgets grow, bosses on 5 and 10, types unlock by wave.
+	var growing := true
+	for n in range(1, 15):
+		growing = growing and gs.wave_budget(n + 1) > gs.wave_budget(n)
+	check(growing, "wave budgets strictly increase")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var w1: Array = WavesScript.compose(1, rng)
+	var w3: Array = WavesScript.compose(3, rng)
+	var w5: Array = WavesScript.compose(5, rng)
+	var w10: Array = WavesScript.compose(10, rng)
+	check(w5[0] == "principal" and w10[0] == "principal" and not w3.has("principal"), "boss on waves 5 and 10 only")
+	check(w1.all(func(t): return t in ["mom", "dad"]) and w1.size() >= 3, "wave 1 is moms and dads (%s)" % str(w1))
+
+	# Start Wave Mode from the hideout (SC-001).
+	gs.graphics_quality = "high"
+	var cash0 := gs.cash
+	main.start_waves()
+	await frames(3)
+	check(main.mode == "waves" and main.player.gunplay != null and main.hud.mode == "waves", "Wave Mode starts with blasters and the wave HUD")
+	check(main.env.ssr_enabled and main.env.volumetric_fog_enabled, "High: arena reflections and light shafts on")
+	var arena_props := Props.count(main.level)
+	var arena_kinds := Props.kinds(main.level)
+	check(arena_props >= 60, "arena has >= 60 props (%d)" % arena_props)
+	var spect := get_tree().get_nodes_in_group("spectators")
+	var spect_safe := spect.size() >= 10
+	for sp in spect:
+		if not sp.find_children("*", "CollisionObject3D", true, false).is_empty() or sp.is_in_group("kids"):
+			spect_safe = false
+	check(spect_safe, "kid spectators cheer from the bleachers, with no colliders (%d)" % spect.size())
+	var t0 := Time.get_ticks_msec()
+	while get_tree().get_nodes_in_group("parents").is_empty() and Time.get_ticks_msec() - t0 < 6000:
+		await frames(5)
+	var first_contact := (Time.get_ticks_msec() - t0) / 1000.0
+	check(not get_tree().get_nodes_in_group("parents").is_empty() and first_contact < 5.0, "wave 1 adults arrive within 5 s (%.1f s)" % first_contact)
+	check(main.director.wave == 1 and main.layout["scoreboard"].text == "WAVE 1", "scoreboard shows WAVE 1")
+	var map: RID = main.level.get_world_3d().navigation_map
+	var bal: Vector3 = Vector3(10, 3.2, 15)
+	var path := NavigationServer3D.map_get_path(map, Vector3(0, 0, 0), bal, true)
+	check(path.size() > 0 and path[-1].distance_to(bal) < 1.5, "navmesh reaches the balcony via the ramps")
+
+	# SC-002: every blaster damages an adult, uses ammo and reloads.
+	await _clear_gym()
+	var pl = main.player
+	pl.global_position = Vector3(-14, 0.1, 0)
+	pl.rotation.y = -PI / 2
+	var dad = main._make_adult("dad", 1.0, _front(5.0) + Vector3(0, 0.1, 0))
+	dad.set_physics_process(false)
+	await frames(2)
+	var g = pl.gunplay
+	# Headshot BONK first (no paint mark yet).
+	gs.equip_blaster("dart")
+	await frames(2)
+	_aim_at(dad.global_position + Vector3(0, dad.data["height"] * 0.93, 0))
+	dad.hp = 5000.0
+	g.cooldown = 0.0
+	g.aim_k = 1.0
+	g.fire()
+	check(dad.hp <= 5000.0 - 20.0 * gs.HEADSHOT_MULT + 0.01, "headshot deals x1.5 (BONK)")
+	for id in gs.BLASTER_ORDER:
+		gs.equip_blaster(id)
+		await frames(2)
+		var b: Dictionary = gs.BLASTERS[id]
+		_aim_at(dad.global_position + Vector3(0, dad.data["height"] * 0.55, 0))
+		dad.hp = 5000.0
+		dad.mark_t = 0.0
+		g.cancel_reload()
+		g.cooldown = 0.0
+		g.aim_k = 1.0
+		var mag0: int = g.mag()
+		g.fire()
+		if id == "chicken":
+			await wait(0.8)
+		await frames(2)
+		check(dad.hp < 5000.0 and g.mag() == mag0 - 1, "%s damages an adult and uses ammo (%d hp)" % [b["name"], 5000.0 - dad.hp])
+		g.ammo[id]["mag"] = 0
+		var res0: int = g.reserve()
+		g.start_reload()
+		await wait(float(b["reload"]) + 0.25)
+		var res_ok: bool = res0 < 0 or g.reserve() == res0 - int(b["mag"])
+		check(g.mag() == int(b["mag"]) and res_ok, "%s reloads from reserve" % b["name"])
+	gs.equip_blaster("paint")
+	await frames(2)
+	dad.mark_t = 0.0
+	g.cooldown = 0.0
+	g.aim_k = 1.0
+	g.fire()
+	await frames(1)
+	check(dad.mark_t > 0.0, "paint marks the adult")
+	gs.equip_blaster("soaker")
+	await frames(2)
+	g.cooldown = 0.0
+	g.aim_k = 1.0
+	g.fire()
+	check(dad.soak_t > 0.0, "soaker soaks the adult (slowed)")
+	gs.equip_blaster("dart")
+	await frames(2)
+
+	# Kids can never be hit (Constitution IX / XIII).
+	dad.take_damage(999999.0)
+	await frames(2)
+	var kid = KidScript.new()
+	kid.player = pl
+	kid.bounds = Rect2(-20, -10, 40, 20)
+	kid.pois = [Vector3(-9, 0, 0)]
+	kid.position = _front(4.0) + Vector3(0, 0.1, 0)
+	main.level.add_child(kid)
+	kid.set_physics_process(false)
+	await frames(2)
+	_aim_at(kid.global_position + Vector3(0, 0.7, 0))
+	var hits0: int = g.hits
+	for id in ["dart", "paint", "bubble", "soaker"]:
+		gs.equip_blaster(id)
+		await frames(1)
+		g.cooldown = 0.0
+		g.fire()
+	await frames(2)
+	check(g.hits == hits0 and kid.state != kid.State.CRYING and is_instance_valid(kid), "shots pass through kids without any effect")
+	kid.queue_free()
+	gs.equip_blaster("dart")
+
+	# Splats and stuck darts stay capped (SC-008).
+	for i in 200:
+		Art.splat(main.level, Vector3(randf_range(-5, 5), 0, randf_range(-5, 5)), Vector3.UP, Color.RED)
+		Art.stuck_dart(main.level, Vector3(randf_range(-5, 5), 1, -16.8), Vector3(0, 0, -1))
+	check(Art.decal_count() <= int(Art.q("decals")) and Art.dart_count() <= Art.MAX_DARTS, "splats (%d) and darts (%d) stay capped" % [Art.decal_count(), Art.dart_count()])
+
+	# SC-004: four far chasers fan out around the player.
+	await _clear_gym()
+	pl.global_position = Vector3(-6, 0.1, 0)
+	var chasers := []
+	for i in 4:
+		var c = main._make_adult("dad", 1.0, Vector3(14 + i * 0.6, 0.1, -1.5 + i))
+		chasers.append(c)
+	# Approach angle = each chaser's bearing when it first closes to 5 m.
+	var approach := {}
+	for step in 220:
+		await frames(4)
+		gs.health = gs.max_health()
+		for c in chasers:
+			var rel: Vector3 = c.global_position - pl.global_position
+			if not approach.has(c) and Vector2(rel.x, rel.z).length() < 5.0:
+				approach[c] = fposmod(atan2(rel.z, rel.x), TAU)
+		if approach.size() == chasers.size():
+			break
+	var angles: Array = approach.values()
+	angles.sort()
+	var max_gap := 0.0
+	for k in angles.size():
+		var nxt: float = angles[(k + 1) % angles.size()] + (TAU if k == angles.size() - 1 else 0.0)
+		max_gap = maxf(max_gap, nxt - angles[k])
+	var spread_deg := rad_to_deg(TAU - max_gap) if angles.size() == 4 else 0.0
+	var shown := angles.map(func(a): return roundi(rad_to_deg(a)))
+	check(spread_deg >= 180.0, "chasers surround the player (spread over %d deg, approach bearings %s)" % [spread_deg, str(shown)])
+
+	# Weaving: an adult being aimed at from range knows it.
+	await _clear_gym()
+	pl.global_position = Vector3(-14, 0.1, 0)
+	pl.rotation.y = -PI / 2
+	var weaver = main._make_adult("mom", 1.0, _front(14.0) + Vector3(0, 0.1, 0))
+	await frames(2)
+	_aim_at(weaver.global_position + Vector3(0, 1.0, 0))
+	var aimed: bool = weaver._being_aimed_at()
+	pl.rotation.y += PI / 2
+	await frames(1)
+	check(aimed and not weaver._being_aimed_at(), "adults notice when the player aims at them")
+
+	# SC-006: a stuck adult detours within 2 s.
+	await _clear_gym()
+	pl.global_position = Vector3(0, 0.1, -13.3)  # behind the bleacher net
+	var stuck = main._make_adult("dad", 1.0, Vector3(0, 0.1, -9.0))
+	var t_stuck := Time.get_ticks_msec()
+	while stuck.detours == 0 and Time.get_ticks_msec() - t_stuck < 4000:
+		await frames(3)
+		gs.health = gs.max_health()
+	check(stuck.detours >= 1 and Time.get_ticks_msec() - t_stuck < 3200, "a stuck adult detours (%.1f s)" % ((Time.get_ticks_msec() - t_stuck) / 1000.0))
+
+	# SC-005: ranged adults wind up >= 0.5 s, lead their throws, and miss a sidestep.
+	await _clear_gym()
+	pl.global_position = Vector3(-14, 0.1, 0)
+	pl.rotation.y = -PI / 2
+	pl.velocity = Vector3.ZERO
+	var pitcher = main._make_adult("pitcher", 1.0, _front(12.0) + Vector3(0, 0.1, 0))
+	pitcher.attack_timer = 0.0
+	var thrown: Node = null
+	var wind_start := -1
+	var windup := 0.0
+	var t_r := Time.get_ticks_msec()
+	while thrown == null and Time.get_ticks_msec() - t_r < 8000:
+		await frames(1)
+		if pitcher.state == ParentScript.State.THROW and wind_start < 0:
+			wind_start = Time.get_ticks_msec()
+		var th := get_tree().get_nodes_in_group("thrown")
+		if not th.is_empty():
+			thrown = th[0]
+			windup = (Time.get_ticks_msec() - wind_start) / 1000.0 if wind_start >= 0 else 0.0
+	check(thrown != null and windup >= 0.5, "ranged adult winds up %.2f s before throwing" % windup)
+	var hp_before := gs.health
+	while is_instance_valid(thrown) and not thrown.done:
+		await frames(1)
+	check(gs.health < hp_before, "a fastball hits a player who stands still")
+	# Next throw: sidestep right after the release.
+	await wait(0.5)
+	pl.hurt_cd = 0.0
+	pitcher.attack_timer = 0.0
+	thrown = null
+	t_r = Time.get_ticks_msec()
+	while thrown == null and Time.get_ticks_msec() - t_r < 8000:
+		await frames(1)
+		var th2 := get_tree().get_nodes_in_group("thrown")
+		if not th2.is_empty():
+			thrown = th2[0]
+	hp_before = gs.health
+	pl.global_position += pl.global_transform.basis.x * 3.0
+	while is_instance_valid(thrown) and not thrown.done:
+		await frames(1)
+	check(gs.health == hp_before, "a sidestep after the release dodges the throw")
+
+	# Boss: telegraphed megaphone, and backup on a timer.
+	await _clear_gym()
+	gs.health = gs.max_health()
+	pl.global_position = Vector3(-14, 0.1, 0)
+	pl.rotation.y = -PI / 2
+	var boss = main._make_adult("principal", 1.0, _front(7.0) + Vector3(0, 0.1, 0))
+	boss.shout_cd = 0.0
+	boss.summon_cd = 999.0
+	var shout_t := -1
+	var tele := 0.0
+	var t_b := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t_b < 6000:
+		await frames(1)
+		gs.health = gs.max_health()
+		if boss.state == ParentScript.State.SHOUT and shout_t < 0:
+			shout_t = Time.get_ticks_msec()
+		elif shout_t >= 0 and boss.state != ParentScript.State.SHOUT:
+			tele = (Time.get_ticks_msec() - shout_t) / 1000.0
+			break
+	check(tele >= 0.8, "boss telegraphs the megaphone blast for %.2f s" % tele)
+	var before_n := get_tree().get_nodes_in_group("parents").size()
+	boss.summon_cd = 0.0
+	await frames(3)
+	check(get_tree().get_nodes_in_group("parents").size() >= before_n + 2, "boss summons hall-monitor backup")
+
+	# Wave loop: clearing a wave pays out, then the next wave starts.
+	await _clear_gym()
+	main.director.alive.clear()
+	main.director.phase = main.director.Phase.SPAWNING
+	var cash_w := gs.cash
+	var wave_n: int = main.director.wave
+	await frames(3)
+	check(main.director.phase == main.director.Phase.INTERMISSION and gs.cash >= cash_w + 15 * wave_n, "clearing a wave pays the bonus")
+	main.director.timer = 0.05
+	await frames(5)
+	check(main.director.wave == wave_n + 1 and main.layout["scoreboard"].text == "WAVE %d" % (wave_n + 1), "the next wave starts after the intermission")
+	# Pickups.
+	g.ammo["paint"]["reserve"] = 0
+	main.spawn_pickup("ammo", pl.global_position)
+	await frames(3)
+	check(g.ammo["paint"]["reserve"] > 0, "ammo pickups refill reserves")
+
+	# Knocked out: the run ends, cash is kept, the best wave is saved.
+	var cash_end := gs.cash
+	main.player_died()
+	await idle(3)
+	check(main.mode == "raid" and main.hub.visible and gs.cash == cash_end and gs.best_wave >= wave_n + 1 and gs.cash > cash0 - 1,
+		"a knockout ends the run, keeps the cash and saves the best wave (%d)" % gs.best_wave)
+
+	# Low quality: no reflections or light shafts.
+	gs.graphics_quality = "low"
+	main.start_waves()
+	await frames(3)
+	var spots: int = main.level.find_children("*", "SpotLight3D", true, false).size()
+	check(not main.env.ssr_enabled and not main.env.volumetric_fog_enabled and spots == 0, "Low: no reflections, no light shafts")
+	main.abandon_raid()
+	await idle(3)
+	gs.graphics_quality = "high"
+	gs.save_settings()
+	check(main.mode == "raid" and not main.raid_over == false, "quitting a run returns to the hideout")
+	return
 
 
 func _tradeable_kid() -> Node:

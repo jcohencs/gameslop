@@ -24,6 +24,8 @@ static func build(id: String, root: Node3D) -> Dictionary:
 			info = _mall(region)
 		"pizza":
 			info = _pizza(region)
+		"arena":
+			info = Arena.build(region)
 		_:
 			info = _playground(region)
 	var half: float = info["half"]

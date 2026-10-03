@@ -66,6 +66,22 @@ var trade_buttons: VBoxContainer
 
 var pause_panel: PanelContainer
 var settings: PanelContainer
+var abandon_button: Button
+var pause_help: Label
+
+# Wave Mode (specs/004).
+var mode := "raid"
+var heat_panel: PanelContainer
+var ammo_label: Label
+var reload_bar: ProgressBar
+var hint_label: Label
+var boss_panel: PanelContainer
+var boss_name: Label
+var boss_bar: ProgressBar
+var banner_box: VBoxContainer
+var banner_title: Label
+var banner_sub: Label
+var _banner_tw: Tween
 
 var _binder_count := -1
 var _hp_lag_value := 100.0
@@ -83,6 +99,7 @@ func _ready() -> void:
 	_build_bottom()
 	_build_trade()
 	_build_pause()
+	set_mode("raid")
 	GameState.message.connect(push_message)
 	GameState.card_acquired.connect(show_card)
 
@@ -153,6 +170,7 @@ func _build_top() -> void:
 
 	# Heat, top right.
 	var tr := UI.panel(0.6)
+	heat_panel = tr
 	_anchored(tr, Control.PRESET_TOP_RIGHT, Control.GROW_DIRECTION_BEGIN, Control.GROW_DIRECTION_END)
 	tr.offset_right = -16
 	tr.offset_top = 14
@@ -161,6 +179,33 @@ func _build_top() -> void:
 	trv.add_child(UI.label("HEAT", 14, UI.TEXT_DIM))
 	heat = HeatMeter.new()
 	trv.add_child(heat)
+
+	# Boss health bar (Wave Mode), under the compass.
+	boss_panel = UI.panel(0.7, UI.BAD)
+	_anchored(boss_panel, Control.PRESET_CENTER_TOP, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_END)
+	boss_panel.offset_top = 96
+	var bv := UI.vbox(4)
+	boss_panel.add_child(bv)
+	boss_name = UI.label("", 18, UI.BAD, true)
+	boss_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bv.add_child(boss_name)
+	boss_bar = UI.bar(UI.BAD, Vector2(460, 16))
+	bv.add_child(boss_bar)
+	boss_panel.visible = false
+
+	# Big center banner (wave start / cleared / boss).
+	banner_box = UI.vbox(2)
+	_anchored(banner_box, Control.PRESET_CENTER, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_BOTH)
+	banner_box.offset_top = -200
+	banner_box.offset_bottom = -200
+	banner_title = UI.label("", 64, UI.ACCENT, true)
+	banner_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	banner_title.add_theme_constant_override("outline_size", 16)
+	banner_box.add_child(banner_title)
+	banner_sub = UI.label("", 22, UI.TEXT, true)
+	banner_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	banner_box.add_child(banner_sub)
+	banner_box.modulate.a = 0.0
 
 
 func _build_bottom() -> void:
@@ -204,10 +249,18 @@ func _build_bottom() -> void:
 	combo_pips = UI.hbox(4)
 	combo_pips.alignment = BoxContainer.ALIGNMENT_END
 	wv.add_child(combo_pips)
+	ammo_label = UI.label("", 40, UI.TEXT, true)
+	ammo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	wv.add_child(ammo_label)
+	reload_bar = UI.bar(UI.ACCENT, Vector2(220, 6))
+	reload_bar.size_flags_horizontal = Control.SIZE_SHRINK_END
+	wv.add_child(reload_bar)
 	slots_label = UI.label("", 14, UI.TEXT_DIM)
 	slots_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	wv.add_child(slots_label)
-	wv.add_child(UI.label("LMB attack (hold: heavy)  RMB block/parry  Q sand  Wheel swap", 13, UI.TEXT_DIM))
+	hint_label = UI.label("", 13, UI.TEXT_DIM)
+	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	wv.add_child(hint_label)
 
 	# Interaction prompt, lower center.
 	prompt_box = UI.hbox(8)
@@ -266,13 +319,54 @@ func _build_pause() -> void:
 	v.add_child(t)
 	v.add_child(UI.button("Resume", func(): main.resume(), 20, 48))
 	v.add_child(UI.button("Settings", _open_settings, 20, 48))
-	v.add_child(UI.button("Abandon raid (lose binder)", func(): main.abandon_raid(), 20, 48))
+	abandon_button = UI.button("Abandon raid (lose binder)", func(): main.abandon_raid(), 20, 48)
+	v.add_child(abandon_button)
 	var help := UI.wrap(UI.label("WASD move · Shift sprint · hold Space to bunny hop (works while sprinting)\nCtrl/C crouch (quiet) & slide at speed · air strafe: hold A/D + turn the mouse mid-air\nLMB attack (3-hit combo) · hold LMB: charged heavy (uses stamina)\nRMB block · tap RMB right before a hit to PARRY · Q pocket sand\n1-7 / mouse wheel: switch weapon · E trade", 14, UI.TEXT_DIM))
+	pause_help = help
 	v.add_child(help)
 	settings = SettingsPanel.new()
 	_anchored(settings, Control.PRESET_CENTER, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_BOTH)
 	settings.visible = false
 	settings.closed.connect(_settings_closed)
+
+
+const RAID_HELP := "WASD move · Shift sprint · hold Space to bunny hop (works while sprinting)\nCtrl/C crouch (quiet) & slide at speed · air strafe: hold A/D + turn the mouse mid-air\nLMB attack (3-hit combo) · hold LMB: charged heavy (uses stamina)\nRMB block · tap RMB right before a hit to PARRY · Q pocket sand\n1-7 / mouse wheel: switch weapon · E trade"
+const WAVE_HELP := "WASD move · Shift sprint · hold Space to bunny hop · Ctrl/C crouch & slide\nLMB fire (hold for full-auto and the soaker) · RMB aim (tighter spread)\nR reload · 1-5 / mouse wheel: switch blaster · headshots BONK for +50%\nKnocked-out adults drop ammo boxes and juice boxes"
+
+
+## Switches the HUD between raid and Wave Mode layouts.
+func set_mode(m: String) -> void:
+	mode = m
+	var waves := m == "waves"
+	heat_panel.visible = not waves
+	binder_label.visible = not waves
+	binder_strip.visible = not waves
+	stamina_bar.visible = not waves
+	combo_pips.visible = not waves
+	ammo_label.visible = waves
+	reload_bar.visible = false
+	boss_panel.visible = false
+	modifier_label.text = ""
+	hint_label.text = "LMB fire  RMB aim  R reload  1-5 / wheel swap" if waves else "LMB attack (hold: heavy)  RMB block/parry  Q sand  Wheel swap"
+	abandon_button.text = "Quit run (keep your cash)" if waves else "Abandon raid (lose binder)"
+	pause_help.text = WAVE_HELP if waves else RAID_HELP
+
+
+## Big center banner that pops in and fades.
+func banner(title: String, sub: String, color := UI.ACCENT) -> void:
+	banner_title.text = title
+	banner_title.add_theme_color_override("font_color", color)
+	banner_sub.text = sub
+	if _banner_tw and _banner_tw.is_valid():
+		_banner_tw.kill()
+	banner_box.modulate.a = 0.0
+	banner_box.pivot_offset = banner_box.size * 0.5
+	banner_box.scale = Vector2(1.3, 1.3)
+	_banner_tw = banner_box.create_tween()
+	_banner_tw.tween_property(banner_box, "modulate:a", 1.0, 0.15)
+	_banner_tw.parallel().tween_property(banner_box, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_banner_tw.tween_interval(2.0)
+	_banner_tw.tween_property(banner_box, "modulate:a", 0.0, 0.5)
 
 
 func _settings_closed() -> void:
@@ -288,6 +382,10 @@ func _open_settings() -> void:
 # --- Per-frame updates -------------------------------------------------------
 
 func refresh(delta: float, player: Node3D) -> void:
+	if mode == "waves":
+		_refresh_health(delta, player)
+		_refresh_waves(player)
+		return
 	var gs := GameState
 	var t := maxf(gs.raid_time_left, 0.0)
 	timer_label.text = "%d:%02d" % [int(t) / 60, int(t) % 60]
@@ -302,26 +400,7 @@ func refresh(delta: float, player: Node3D) -> void:
 		modifier_label.text = "%s: %s" % [m["name"].to_upper(), m["desc"]]
 	heat.stars = gs.stars()
 
-	var mh := gs.max_health()
-	hp_bar.max_value = mh
-	hp_lag.max_value = mh
-	hp_bar.value = gs.health
-	_hp_lag_value = move_toward(_hp_lag_value, gs.health, delta * 40.0) if _hp_lag_value > gs.health else gs.health
-	hp_lag.value = _hp_lag_value
-	hp_text.text = "%d" % ceili(gs.health)
-	stamina_bar.max_value = gs.max_stamina()
-	stamina_bar.value = gs.stamina
-	if player:
-		# Dim red when there isn't enough stamina for a heavy.
-		stamina_bar.modulate = Color.WHITE if gs.stamina >= player.HEAVY_STAMINA else Color(1, 0.45, 0.3)
-		speed_label.text = "%d m/s%s" % [roundi(player.hspeed()), "  SLIDE" if player.sliding else ""]
-		speed_label.modulate.a = clampf((player.hspeed() - player.run_speed) / 1.5, 0.0, 1.0)
-	var low := 1.0 - gs.health / mh
-	# Subtle constant cinematic vignette, deepening into a red pulse at low health.
-	var hurt := clampf((low - 0.5) * 1.6, 0.0, 0.8) * (0.8 + 0.2 * sin(Time.get_ticks_msec() * 0.006))
-	var vm := vignette.material as ShaderMaterial
-	vm.set_shader_parameter("strength", maxf(0.22, hurt))
-	vm.set_shader_parameter("tint", Color(0.0, 0.0, 0.05).lerp(Color(0.8, 0.0, 0.0), clampf(hurt / 0.3, 0.0, 1.0)))
+	_refresh_health(delta, player)
 
 	binder_label.text = "BINDER %d/%d   $%d AT RISK" % [gs.binder.size(), gs.capacity(), gs.cards_value(gs.binder)]
 	if _binder_count != gs.binder.size():
@@ -357,6 +436,69 @@ func refresh(delta: float, player: Node3D) -> void:
 		var id: String = gs.WEAPON_ORDER[i]
 		if gs.weapons_owned[id]:
 			slots.append(("[%d]" if id == gs.weapon_id else "%d") % (i + 1))
+	slots_label.text = "  ".join(slots)
+
+
+func _refresh_health(delta: float, player: Node3D) -> void:
+	var gs := GameState
+	var mh := gs.max_health()
+	hp_bar.max_value = mh
+	hp_lag.max_value = mh
+	hp_bar.value = gs.health
+	_hp_lag_value = move_toward(_hp_lag_value, gs.health, delta * 40.0) if _hp_lag_value > gs.health else gs.health
+	hp_lag.value = _hp_lag_value
+	hp_text.text = "%d" % ceili(gs.health)
+	stamina_bar.max_value = gs.max_stamina()
+	stamina_bar.value = gs.stamina
+	if player:
+		# Dim red when there isn't enough stamina for a heavy.
+		stamina_bar.modulate = Color.WHITE if gs.stamina >= player.HEAVY_STAMINA else Color(1, 0.45, 0.3)
+		speed_label.text = "%d m/s%s" % [roundi(player.hspeed()), "  SLIDE" if player.sliding else ""]
+		speed_label.modulate.a = clampf((player.hspeed() - player.run_speed) / 1.5, 0.0, 1.0)
+	var low := 1.0 - gs.health / mh
+	# Subtle constant cinematic vignette, deepening into a red pulse at low health.
+	var hurt := clampf((low - 0.5) * 1.6, 0.0, 0.8) * (0.8 + 0.2 * sin(Time.get_ticks_msec() * 0.006))
+	var vm := vignette.material as ShaderMaterial
+	vm.set_shader_parameter("strength", maxf(0.22, hurt))
+	vm.set_shader_parameter("tint", Color(0.0, 0.0, 0.05).lerp(Color(0.8, 0.0, 0.0), clampf(hurt / 0.3, 0.0, 1.0)))
+
+
+func _refresh_waves(player: Node3D) -> void:
+	var gs := GameState
+	var d: Node = main.director
+	if d == null or player == null:
+		return
+	location_label.text = "REC CENTER SHOWDOWN"
+	timer_label.text = "WAVE %d" % maxi(d.wave, 1)
+	timer_label.modulate.a = 1.0
+	timer_label.add_theme_color_override("font_color", UI.ACCENT)
+	if d.spawning():
+		modifier_label.text = "%d adult%s left" % [d.remaining(), "" if d.remaining() == 1 else "s"]
+	else:
+		modifier_label.text = "%s in %d" % ["Next wave" if d.wave > 0 else "Doors open", ceili(d.intermission_left())]
+	status_label.text = "KOs %d  ·  +$%d" % [d.kos, d.cash_earned()]
+	status_label.add_theme_color_override("font_color", UI.GOOD)
+	var boss: Node = d.boss
+	boss_panel.visible = boss != null and is_instance_valid(boss)
+	if boss_panel.visible:
+		boss_name.text = boss.data["name"].to_upper()
+		boss_bar.max_value = boss.data["hp"] * boss.hp_mult
+		boss_bar.value = boss.hp
+	var g: Node = player.gunplay
+	var b := gs.blaster()
+	weapon_label.text = b["name"]
+	var res: int = g.reserve()
+	ammo_label.text = "%d / %s" % [g.mag(), "∞" if res < 0 else str(res)]
+	ammo_label.add_theme_color_override("font_color", UI.BAD if g.mag() == 0 else (UI.ACCENT if g.mag() <= int(b["mag"]) / 4 else UI.TEXT))
+	reload_bar.visible = g.reloading()
+	reload_bar.value = g.reload_fraction() * 100.0
+	if g.reloading():
+		ammo_label.text = "RELOADING"
+	var slots := []
+	for i in gs.BLASTER_ORDER.size():
+		var id: String = gs.BLASTER_ORDER[i]
+		if gs.blasters_owned[id]:
+			slots.append(("[%d]" if id == gs.blaster_id else "%d") % (i + 1))
 	slots_label.text = "  ".join(slots)
 
 

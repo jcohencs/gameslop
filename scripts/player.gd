@@ -4,6 +4,7 @@ extends CharacterBody3D
 ## thing that costs stamina), block/parry, pocket sand, and interaction.
 
 const ViewmodelScript := preload("res://scripts/viewmodel.gd")
+const GunplayScript := preload("res://scripts/gunplay.gd")
 
 # Movement tuning lives in GameState.MOVEMENT (m/s); copied into these vars in _ready().
 # Air strafing works like Source: wish speed is capped in the air, so turning the mouse
@@ -31,6 +32,7 @@ var input_locked := true
 var head: Node3D
 var camera: Camera3D
 var viewmodel: Node3D
+var gunplay: Node = null         # Wave Mode only (toy blasters)
 var collider: CollisionShape3D
 var capsule: CapsuleShape3D
 
@@ -83,6 +85,7 @@ var _eye := EYE_STAND
 
 
 func _ready() -> void:
+	add_to_group("player")
 	_load_movement_profile()
 	collision_layer = 2
 	collision_mask = 1 | 4 | 8
@@ -102,9 +105,34 @@ func _ready() -> void:
 
 	viewmodel = ViewmodelScript.new()
 	camera.add_child(viewmodel)
-	_shown_weapon = GameState.weapon_id
-	viewmodel.set_weapon(GameState.weapon_id)
+	if wave_mode():
+		gunplay = GunplayScript.new()
+		gunplay.player = self
+		gunplay.main = main
+		add_child(gunplay)
+		gunplay.reset_ammo()
+		_shown_weapon = GameState.blaster_id
+		_show_blaster()
+	else:
+		_shown_weapon = GameState.weapon_id
+		viewmodel.set_weapon(GameState.weapon_id)
 	GameState.changed.connect(_on_state_changed)
+
+
+func wave_mode() -> bool:
+	return main != null and main.get("mode") == "waves"
+
+
+func _show_blaster() -> void:
+	viewmodel.set_blaster(GameState.blaster_id)
+	gunplay.stream = viewmodel.muzzle.get_node_or_null("WaterStream") if viewmodel.muzzle else null
+
+
+## Blaster kick: nudges the view up (the player pulls it back down, like any shooter).
+func add_recoil(amount: float) -> void:
+	head.rotation.x = clampf(head.rotation.x + amount, -1.5, 1.5)
+	rotate_y(randf_range(-amount, amount) * 0.25)
+	shake = maxf(shake, amount * 4.0)
 
 
 func _load_movement_profile() -> void:
@@ -131,6 +159,12 @@ func _load_movement_profile() -> void:
 
 
 func _on_state_changed() -> void:
+	if gunplay:
+		if _shown_weapon != GameState.blaster_id:
+			_shown_weapon = GameState.blaster_id
+			gunplay.cancel_reload()
+			_show_blaster()
+		return
 	if _shown_weapon != GameState.weapon_id:
 		_shown_weapon = GameState.weapon_id
 		viewmodel.set_weapon(GameState.weapon_id)
@@ -158,6 +192,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		get_viewport().set_input_as_handled()
+		return
+	if gunplay:
+		if event.is_action_pressed("weapon_next"):
+			GameState.cycle_blaster(1)
+		elif event.is_action_pressed("weapon_prev"):
+			GameState.cycle_blaster(-1)
+		else:
+			for i in GameState.BLASTER_ORDER.size():
+				if event.is_action_pressed("weapon_%d" % (i + 1)):
+					GameState.equip_blaster(GameState.BLASTER_ORDER[i])
 		return
 	if event.is_action_pressed("interact") and interact_target:
 		main.interact(interact_target)
@@ -207,7 +251,7 @@ func _physics_process(delta: float) -> void:
 			jump_buffer = JUMP_BUFFER
 
 	# Blocking (with parry window right after raising the guard).
-	var want_block := active and Input.is_action_pressed("block")
+	var want_block := active and Input.is_action_pressed("block") and gunplay == null
 	if want_block and not blocking:
 		block_time = _time
 	blocking = want_block
@@ -232,6 +276,8 @@ func _physics_process(delta: float) -> void:
 		wishspeed *= 0.55
 	if charge > 0.0:
 		wishspeed *= 0.75
+	if gunplay:
+		wishspeed *= lerpf(1.0, 0.7, gunplay.aim_k)
 	wishspeed *= GameState.speed_mult()
 
 	# Jump: buffered presses and held space both work, so bunny hopping is just
@@ -279,7 +325,11 @@ func _physics_process(delta: float) -> void:
 			_start_slide()
 	was_on_floor = is_on_floor()
 
-	if not input_locked:
+	if gunplay:
+		var go := not input_locked
+		gunplay.tick(delta, go and Input.is_action_pressed("attack"), go and Input.is_action_just_pressed("attack"),
+			go and Input.is_action_pressed("block"), go and Input.is_action_just_pressed("reload"))
+	elif not input_locked:
 		_handle_attack_input(delta)
 	else:
 		holding = false
@@ -533,6 +583,8 @@ func _update_camera(delta: float, move: Vector2, hs: float) -> void:
 	# FOV widens across the run-speed .. cap range (up to +12 degrees).
 	var speed_fov := clampf((hs - run_speed) / (max_speed - run_speed), 0.0, 1.0) * 12.0
 	var target_fov: float = GameState.fov + speed_fov - charge_fraction() * 6.0
+	if gunplay:
+		target_fov -= gunplay.aim_k * (GameState.AIM_FOV_DROP + speed_fov)
 	camera.fov = lerpf(camera.fov, target_fov, minf(delta * 8.0, 1.0))
 	# Strafe tilt, extra roll while sliding.
 	var roll := -move.x * 0.025 + (0.07 if sliding else 0.0)
@@ -547,6 +599,9 @@ func _update_camera(delta: float, move: Vector2, hs: float) -> void:
 func _update_interact_target() -> void:
 	var best: Node = null
 	var best_score := -1.0
+	if gunplay:
+		interact_target = null
+		return
 	var forward := -camera.global_transform.basis.z
 	for kid in get_tree().get_nodes_in_group("kids"):
 		if not kid.can_trade():

@@ -36,6 +36,17 @@ var _trail_time := 0.0
 var _trail_cd := 0.0
 var _kick := Vector3.ZERO
 
+# Wave Mode blasters (specs/004).
+const GUN_HIP := Vector3(0.17, -0.19, -0.42)
+const GUN_AIM := Vector3(0.0, -0.125, -0.34)
+var gun: Node3D = null
+var muzzle: Node3D = null
+var blaster_id := ""
+var _gun_kick := 0.0
+var _aim := 0.0
+var _reload_t := 0.0
+var _reload_len := 0.0
+
 
 func _ready() -> void:
 	sway = Node3D.new()
@@ -96,6 +107,7 @@ func _clear(n: Node) -> void:
 
 func set_weapon(id: String) -> void:
 	var w: Dictionary = GameState.WEAPONS[id]
+	_drop_gun()
 	kind = w["kind"]
 	_clear(hand_l)
 	_clear(hand_r)
@@ -203,6 +215,154 @@ func _make_fist(hand: Node3D, id: String, w: Dictionary) -> void:
 			gem.position = Vector3((i - 1) * size * 0.6, size * 0.75, -size * 0.3)
 			_no_shadow(gem)
 			hand.add_child(gem)
+
+
+# --- Blasters (Wave Mode) ----------------------------------------------------
+
+func _drop_gun() -> void:
+	if gun:
+		gun.queue_free()
+	gun = null
+	muzzle = null
+	blaster_id = ""
+
+
+## Builds a toy blaster held in both hands. Barrels point along -Z.
+func set_blaster(id: String) -> void:
+	_drop_gun()
+	kind = "blaster"
+	blaster_id = id
+	_clear(hand_l)
+	_clear(hand_r)
+	blade = null
+	weapon_root = null
+	for tw in [_tw_l, _tw_r]:
+		if tw and tw.is_valid():
+			tw.kill()
+	_make_fist(hand_l, "knuckles", GameState.WEAPONS["knuckles"])
+	_make_fist(hand_r, "knuckles", GameState.WEAPONS["knuckles"])
+	gun = Node3D.new()
+	gun.position = GUN_HIP
+	sway.add_child(gun)
+	muzzle = Node3D.new()
+	gun.add_child(muzzle)
+	var b: Dictionary = GameState.BLASTERS[id]
+	var col: Color = b["color"]
+	match id:
+		"dart":
+			_gpart(_bx(0.05, 0.07, 0.2), Vector3(0, 0, -0.06), col)
+			_gpart(_bx(0.054, 0.022, 0.17), Vector3(0, 0.045, -0.06), Color(1.0, 0.85, 0.2))
+			_gpart(_cyl(0.017, 0.012, 0.11), Vector3(0, 0.01, -0.2), Color(0.2, 0.45, 1.0), Vector3(PI / 2, 0, 0))
+			_gpart(_bx(0.042, 0.11, 0.05), Vector3(0, -0.075, 0.02), Color(0.2, 0.3, 0.6), Vector3(0.3, 0, 0))
+			_gpart(_bx(0.01, 0.04, 0.05), Vector3(0, -0.04, -0.03), Color(0.95, 0.85, 0.2))
+			muzzle.position = Vector3(0, 0.01, -0.27)
+		"soaker":
+			_gpart(_bx(0.06, 0.075, 0.34), Vector3(0, 0, -0.08), col)
+			var tank := _gpart(_cyl(0.06, 0.06, 0.24), Vector3(0, 0.085, -0.02), Color(0.3, 0.6, 1.0), Vector3(PI / 2, 0, 0))
+			var tm := Shapes.mat(Color(0.35, 0.65, 1.0, 0.65), 0.3)
+			tm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			tank.material_override = tm
+			_gpart(_cyl(0.014, 0.014, 0.14), Vector3(0, 0.0, -0.31), Color(1.0, 0.85, 0.2), Vector3(PI / 2, 0, 0))
+			_gpart(_cyl(0.026, 0.026, 0.12), Vector3(0, -0.05, -0.2), Color(1.0, 0.5, 0.1), Vector3(PI / 2, 0, 0))
+			_gpart(_bx(0.045, 0.11, 0.05), Vector3(0, -0.08, 0.04), Color(0.15, 0.4, 0.2), Vector3(0.3, 0, 0))
+			muzzle.position = Vector3(0, 0, -0.39)
+			Art.water_stream(muzzle)
+		"paint":
+			_gpart(_bx(0.055, 0.08, 0.36), Vector3(0, 0, -0.05), col)
+			_gpart(_cyl(0.02, 0.02, 0.3), Vector3(0, 0.015, -0.36), Color(0.15, 0.15, 0.18), Vector3(PI / 2, 0, 0))
+			_gpart(_sph(0.065), Vector3(0, 0.1, -0.03), Color(1.0, 0.85, 0.2))
+			_gpart(_cyl(0.03, 0.03, 0.16), Vector3(0, -0.02, 0.2), Color(0.75, 0.78, 0.82), Vector3(PI / 2, 0, 0))
+			_gpart(_bx(0.045, 0.11, 0.05), Vector3(0, -0.085, 0.05), Color(0.2, 0.15, 0.25), Vector3(0.3, 0, 0))
+			_gpart(_bx(0.03, 0.05, 0.1), Vector3(0, -0.05, -0.2), Color(0.2, 0.15, 0.25))
+			muzzle.position = Vector3(0, 0.015, -0.52)
+		"bubble":
+			_gpart(_bx(0.065, 0.08, 0.28), Vector3(0, 0, -0.02), Color(1.0, 0.6, 0.8))
+			_gpart(_cyl(0.075, 0.03, 0.2), Vector3(0, 0.01, -0.25), col, Vector3(-PI / 2, 0, 0))
+			var bub := _gpart(_sph(0.07), Vector3(0, 0.1, 0.0), Color(0.6, 0.9, 1.0))
+			var bm := Shapes.mat(Color(0.6, 0.9, 1.0, 0.5), 0.6)
+			bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			bub.material_override = bm
+			_gpart(_bx(0.045, 0.11, 0.05), Vector3(0, -0.085, 0.06), Color(0.55, 0.3, 0.6), Vector3(0.3, 0, 0))
+			muzzle.position = Vector3(0, 0.01, -0.36)
+		"chicken":
+			_gpart(_cyl(0.062, 0.062, 0.52), Vector3(0, 0.02, -0.08), Color(0.35, 0.5, 0.3), Vector3(PI / 2, 0, 0))
+			_gpart(_cyl(0.068, 0.068, 0.04), Vector3(0, 0.02, -0.33), Color(0.9, 0.75, 0.2), Vector3(PI / 2, 0, 0))
+			_gpart(_sph(0.05), Vector3(0, 0.03, -0.35), col)
+			_gpart(_bx(0.015, 0.04, 0.05), Vector3(0, 0.085, -0.35), Color(0.95, 0.15, 0.15))
+			_gpart(_cyl(0.0, 0.02, 0.05), Vector3(0, 0.025, -0.4), Color(1.0, 0.5, 0.1), Vector3(-PI / 2, 0, 0))
+			_gpart(_bx(0.03, 0.04, 0.08), Vector3(0, 0.1, -0.05), Color(0.2, 0.2, 0.22))
+			_gpart(_bx(0.045, 0.11, 0.05), Vector3(0, -0.09, 0.02), Color(0.25, 0.3, 0.2), Vector3(0.3, 0, 0))
+			muzzle.position = Vector3(0, 0.03, -0.4)
+
+
+func _gpart(mesh: Mesh, pos: Vector3, color: Color, rot := Vector3.ZERO) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = Shapes.mat(color)
+	mi.position = pos
+	mi.rotation = rot
+	_no_shadow(mi)
+	gun.add_child(mi)
+	return mi
+
+
+func _bx(x: float, y: float, z: float) -> BoxMesh:
+	var m := BoxMesh.new()
+	m.size = Vector3(x, y, z)
+	return m
+
+
+func _cyl(top: float, bottom: float, h: float) -> CylinderMesh:
+	var m := CylinderMesh.new()
+	m.top_radius = top
+	m.bottom_radius = bottom
+	m.height = h
+	m.radial_segments = 14
+	return m
+
+
+func _sph(r: float) -> SphereMesh:
+	var m := SphereMesh.new()
+	m.radius = r
+	m.height = r * 2.0
+	return m
+
+
+func muzzle_position() -> Vector3:
+	if muzzle and muzzle.is_inside_tree():
+		return muzzle.global_position
+	return global_position + -global_transform.basis.z * 0.5
+
+
+func fire_kick(strength: float) -> void:
+	_gun_kick = minf(_gun_kick + strength * 0.5, 1.0)
+
+
+func set_aim(k: float) -> void:
+	_aim = k
+
+
+## Starts (t > 0) or cancels (t = 0) the reload animation.
+func reload_anim(t: float) -> void:
+	_reload_t = t
+	_reload_len = t
+
+
+func _tick_gun(delta: float) -> void:
+	_gun_kick = move_toward(_gun_kick, 0.0, delta * 6.0)
+	var p := 0.0
+	if _reload_t > 0.0:
+		_reload_t = maxf(_reload_t - delta, 0.0)
+		p = sin((1.0 - _reload_t / maxf(_reload_len, 0.01)) * PI)
+	var pos := GUN_HIP.lerp(GUN_AIM, _aim) + Vector3(0, 0.01, 0.07) * _gun_kick + Vector3(0, -0.05, 0.03) * p
+	gun.position = pos
+	gun.rotation = Vector3(0.18 * _gun_kick - 0.6 * p, 0.0, 0.5 * p)
+	# Hands follow the blaster: right on the grip, left on the fore-grip (or the tank mid-reload).
+	arm_r.position = pos + Vector3(0.0, -0.09, 0.07)
+	arm_r.rotation = Vector3(0.35 + gun.rotation.x * 0.5, 0.1, gun.rotation.z * 0.5)
+	var fore := Vector3(-0.045, -0.055, -0.2).lerp(Vector3(-0.06, -0.14, -0.02), p)
+	arm_l.position = pos + fore
+	arm_l.rotation = Vector3(0.25, -0.55, 0.35)
 
 
 # --- Pose helpers ------------------------------------------------------------
@@ -386,7 +546,10 @@ func tick(delta: float, speed: float, sprinting: bool, on_floor: bool) -> void:
 		tremble = Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * minf(_charge_t, 0.6) * 0.006
 	else:
 		_charge_t = 0.0
-	sway.position = _bob + Vector3(-_sway.x * 0.4, _sway.y * 0.4 - _dip, 0) + _kick + sprint_drop + tremble
+	if gun:
+		_tick_gun(delta)
+		sprint_drop *= 1.0 - _aim
+	sway.position = _bob * (1.0 - _aim * 0.8) + Vector3(-_sway.x * 0.4, _sway.y * 0.4 - _dip, 0) + _kick + sprint_drop + tremble
 	sway.rotation = Vector3(-_sway.y * 1.2 + (0.25 if sprinting and not _blocking and not _charging else 0.0), -_sway.x * 1.2,
 		_sway.x * 0.8 + (0.18 if _sliding else 0.0))
 

@@ -4,8 +4,10 @@ class_name Art
 ## Everything is generated in code (Constitution X). Scales with GameState.graphics_quality.
 
 const QUALITY := {
-	"high": {"outlines": true, "shadows": true, "grass": 3500, "particles": 1.0, "ssao": true},
-	"low": {"outlines": false, "shadows": false, "grass": 700, "particles": 0.4, "ssao": false},
+	"high": {"outlines": true, "shadows": true, "grass": 3500, "particles": 1.0, "ssao": true,
+		"ssr": true, "volumetric": true, "decals": 120},
+	"low": {"outlines": false, "shadows": false, "grass": 700, "particles": 0.4, "ssao": false,
+		"ssr": false, "volumetric": false, "decals": 40},
 }
 
 ## Procedural textures: world size in meters of one repeat.
@@ -37,12 +39,21 @@ const MOODS := {
 		"sky_top": Color(0.4, 0.6, 0.88), "sky_horizon": Color(0.74, 0.84, 0.95), "ground": Color(0.5, 0.52, 0.56),
 		"ambient": 0.4, "fog": true, "fog_color": Color(0.85, 0.9, 0.97), "fog_density": 0.005,
 		"contrast": 1.12, "saturation": 1.2, "glow": 0.3, "exposure": 0.72},
+	# Rec Center gym (Wave Mode): indoors under a ceiling, warm lamps, hazy air for light shafts.
+	"arena": {"sun_rot": Vector3(-35, 60, 0), "sun_color": Color(1.0, 0.88, 0.7), "sun_energy": 0.4,
+		"sky_top": Color(0.5, 0.42, 0.35), "sky_horizon": Color(0.95, 0.82, 0.62), "ground": Color(0.45, 0.35, 0.25),
+		"ambient": 0.7, "fog": true, "fog_color": Color(0.95, 0.85, 0.7), "fog_density": 0.006,
+		"contrast": 1.1, "saturation": 1.15, "glow": 0.55, "exposure": 0.85,
+		"ssr": true, "volumetric": true, "vol_density": 0.018},
 }
 
 static var _tex_cache := {}
 static var _outline_cache := {}
 static var _grass_shader: Shader
 static var _particle_mat: StandardMaterial3D
+static var _decals: Array = []      # paint splats, oldest first (capped by q("decals"))
+static var _darts: Array = []       # stuck foam darts, oldest first
+const MAX_DARTS := 60
 
 
 ## Value from the active quality profile.
@@ -232,6 +243,13 @@ static func apply_mood(env: Environment, sky_mat: ProceduralSkyMaterial, sun: Di
 	env.tonemap_exposure = m["exposure"]
 	env.ssao_enabled = q("ssao")
 	env.ssao_intensity = 1.2
+	# Forward+ only extras (Compatibility ignores them): glossy-floor reflections and light shafts.
+	env.ssr_enabled = q("ssr") and m.get("ssr", false)
+	env.ssr_max_steps = 48
+	env.volumetric_fog_enabled = q("volumetric") and m.get("volumetric", false)
+	env.volumetric_fog_density = m.get("vol_density", 0.01)
+	env.volumetric_fog_albedo = m["fog_color"]
+	env.volumetric_fog_length = 40.0
 
 
 # --- Environment builders ---------------------------------------------------------
@@ -535,5 +553,265 @@ static func dust_motes(parent: Node3D, box: AABB) -> CPUParticles3D:
 	p.name = "DustMotes"
 	parent.add_child(p)
 	p.position = box.get_center()
+	p.emitting = true
+	return p
+
+
+# --- Wave Mode shooter effects (specs/004) ----------------------------------------
+
+## Unshaded glowing material for flashes, tracers and shockwaves.
+static func glow_mat(color: Color, energy := 2.0) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = color
+	m.emission_enabled = true
+	m.emission = color
+	m.emission_energy_multiplier = energy
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
+
+
+## A quick star-shaped flash and light pop at a muzzle (parented so it follows the blaster).
+static func muzzle_flash(muzzle: Node3D, color: Color, size := 0.09) -> void:
+	var star := MeshInstance3D.new()
+	star.mesh = _star_mesh(size)
+	var m := glow_mat(color.lightened(0.3), 4.0)
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	star.material_override = m
+	star.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	star.rotation.z = randf() * TAU
+	muzzle.add_child(star)
+	var light := OmniLight3D.new()
+	light.light_color = color
+	light.light_energy = 1.6
+	light.omni_range = 3.5
+	muzzle.add_child(light)
+	var tw := star.create_tween()
+	tw.tween_property(star, "scale", Vector3(1.6, 1.6, 1.6), 0.06)
+	tw.parallel().tween_property(m, "albedo_color:a", 0.0, 0.06)
+	tw.tween_callback(star.queue_free)
+	tw.tween_callback(light.queue_free)
+
+
+## A visible projectile that flies from a to b, then calls on_arrive (hit registration is
+## instant hitscan; this is only what the player sees).
+static func tracer(parent: Node, a: Vector3, b: Vector3, kind: String, color: Color, on_arrive: Callable) -> Node3D:
+	var n := Node3D.new()
+	n.name = "Tracer"
+	parent.add_child(n)
+	n.global_position = a
+	var speed := 90.0
+	match kind:
+		"dart":
+			var body := Shapes.cylinder(n, 0.018, 0.13, Vector3.ZERO, Color(1.0, 0.55, 0.1))
+			body.rotation.x = PI / 2
+			var tip := Shapes.sphere(n, 0.022, Vector3(0, 0, -0.07), Color(0.2, 0.45, 1.0))
+			tip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		"paint":
+			speed = 75.0
+			var ball := Shapes.sphere(n, 0.035, Vector3.ZERO, color)
+			ball.material_override = Shapes.mat(color, 0.6)
+			ball.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		"bubble":
+			speed = 38.0
+			var bub := MeshInstance3D.new()
+			var sm := SphereMesh.new()
+			sm.radius = 0.06
+			sm.height = 0.12
+			bub.mesh = sm
+			var bm := glow_mat(Color(0.7, 0.95, 1.0, 0.45), 0.8)
+			bub.material_override = bm
+			bub.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			n.add_child(bub)
+	if a.distance_to(b) > 0.01:
+		n.look_at(b, Vector3.UP if absf((b - a).normalized().y) < 0.99 else Vector3.RIGHT)
+	var t := clampf(a.distance_to(b) / speed, 0.02, 0.6)
+	var tw := n.create_tween()
+	tw.tween_property(n, "global_position", b, t)
+	tw.tween_callback(on_arrive)
+	tw.tween_callback(n.queue_free)
+	return n
+
+
+static func _push_capped(list: Array, node: Node, cap: int) -> void:
+	list.append(node)
+	while list.size() > cap:
+		var old: Node = list.pop_front()
+		if is_instance_valid(old):
+			old.queue_free()
+
+
+static func _prune(list: Array) -> void:
+	for i in range(list.size() - 1, -1, -1):
+		if not is_instance_valid(list[i]):
+			list.remove_at(i)
+
+
+## Paint splat stuck to a surface. Oldest splats are removed past the quality cap.
+static func splat(parent: Node, pos: Vector3, normal: Vector3, color: Color) -> MeshInstance3D:
+	_prune(_decals)
+	var mi := MeshInstance3D.new()
+	mi.name = "Splat"
+	var cm := CylinderMesh.new()
+	var r := randf_range(0.14, 0.3)
+	cm.top_radius = r
+	cm.bottom_radius = r
+	cm.height = 0.01
+	cm.radial_segments = 10
+	mi.mesh = cm
+	mi.material_override = Shapes.mat(color.lightened(randf_range(-0.1, 0.1)), 0.15)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	var up := normal.normalized() if normal.length() > 0.1 else Vector3.UP
+	var side := up.cross(Vector3.RIGHT if absf(up.dot(Vector3.RIGHT)) < 0.9 else Vector3.FORWARD).normalized()
+	mi.global_transform = Transform3D(Basis(side, up, side.cross(up)).orthonormalized(), pos + up * 0.012)
+	mi.scale = Vector3(1.0, 1.0, randf_range(0.6, 1.0))
+	_push_capped(_decals, mi, int(q("decals")))
+	return mi
+
+
+## A foam dart stuck in a wall, pointing along the shot.
+static func stuck_dart(parent: Node, pos: Vector3, dir: Vector3) -> Node3D:
+	_prune(_darts)
+	var n := Node3D.new()
+	n.name = "StuckDart"
+	parent.add_child(n)
+	n.global_position = pos - dir.normalized() * 0.05
+	if dir.length() > 0.01:
+		n.look_at(n.global_position + dir, Vector3.UP if absf(dir.normalized().y) < 0.99 else Vector3.RIGHT)
+	var body := Shapes.cylinder(n, 0.018, 0.12, Vector3.ZERO, Color(1.0, 0.55, 0.1))
+	body.rotation.x = PI / 2
+	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var fin := Shapes.box(n, Vector3(0.05, 0.004, 0.03), Vector3(0, 0, 0.055), Color(0.2, 0.45, 1.0))
+	fin.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_push_capped(_darts, n, MAX_DARTS)
+	return n
+
+
+static func decal_count() -> int:
+	_prune(_decals)
+	return _decals.size()
+
+
+static func dart_count() -> int:
+	_prune(_darts)
+	return _darts.size()
+
+
+## Small colored burst where a shot lands.
+static func impact_puff(parent: Node, pos: Vector3, color: Color, amount := 10) -> void:
+	var p := _particles(amount, 0.35, color, 0.1)
+	p.one_shot = true
+	p.explosiveness = 0.95
+	p.spread = 180.0
+	p.initial_velocity_min = 1.5
+	p.initial_velocity_max = 3.5
+	p.gravity = Vector3(0, -6, 0)
+	p.name = "Puff"
+	parent.add_child(p)
+	p.global_position = pos
+	p.emitting = true
+	p.get_tree().create_timer(0.7, false).timeout.connect(p.queue_free)
+
+
+## Water/goo splash: droplets plus a flat ring that spreads and fades.
+static func splash(parent: Node, pos: Vector3, color: Color, radius := 1.0) -> void:
+	impact_puff(parent, pos + Vector3(0, 0.2, 0), color, 18)
+	ring_wave(parent, pos + Vector3(0, 0.05, 0), color, radius, 0.35)
+
+
+## Expanding flat ring (explosions, megaphone blasts, splashes).
+static func ring_wave(parent: Node, pos: Vector3, color: Color, radius: float, time := 0.4) -> void:
+	var mi := MeshInstance3D.new()
+	mi.name = "RingWave"
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.8
+	tm.outer_radius = 1.0
+	tm.rings = 24
+	mi.mesh = tm
+	var m := glow_mat(Color(color, 0.7), 1.5)
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	mi.global_position = pos
+	mi.scale = Vector3(0.2, 0.3, 0.2)
+	var tw := mi.create_tween()
+	tw.tween_property(mi, "scale", Vector3(radius, 0.3, radius), time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(m, "albedo_color:a", 0.0, time)
+	tw.tween_callback(mi.queue_free)
+
+
+## Rubber chicken impact: a burst of feathers, a shockwave and a big cartoon word.
+static func feathers(parent: Node, pos: Vector3, radius: float) -> void:
+	var p := _particles(40, 1.4, Color(1.0, 0.95, 0.75), 0.14)
+	p.one_shot = true
+	p.explosiveness = 0.95
+	p.spread = 180.0
+	p.initial_velocity_min = 3.0
+	p.initial_velocity_max = 7.0
+	p.gravity = Vector3(0, -1.5, 0)
+	p.damping_min = 2.0
+	p.damping_max = 4.0
+	p.name = "Feathers"
+	parent.add_child(p)
+	p.global_position = pos + Vector3(0, 0.4, 0)
+	p.emitting = true
+	p.get_tree().create_timer(1.8, false).timeout.connect(p.queue_free)
+	impact_puff(parent, pos + Vector3(0, 0.3, 0), Color(1.0, 0.75, 0.2), 24)
+	ring_wave(parent, pos + Vector3(0, 0.1, 0), Color(1.0, 0.85, 0.3), radius, 0.4)
+	pop_word(parent, pos + Vector3(0, 1.4, 0), ["BWAK!", "BAWK!!", "SQUAWK!"][randi() % 3], Color(1.0, 0.85, 0.2), 120)
+
+
+## Big cartoon word that pops up and floats away.
+static func pop_word(parent: Node, pos: Vector3, text: String, color: Color, size := 90) -> void:
+	var l := Label3D.new()
+	l.text = text
+	l.font_size = size
+	l.pixel_size = 0.005
+	l.outline_size = 18
+	l.modulate = color
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.font = UI.bold_font()
+	parent.add_child(l)
+	l.global_position = pos
+	l.scale = Vector3(0.3, 0.3, 0.3)
+	var tw := l.create_tween()
+	tw.tween_property(l, "scale", Vector3.ONE, 0.15).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(l, "global_position:y", pos.y + 0.8, 0.6)
+	tw.parallel().tween_property(l, "modulate:a", 0.0, 0.6).set_delay(0.2)
+	tw.tween_callback(l.queue_free)
+
+
+## Continuous water stream for the soaker (toggle .emitting).
+static func water_stream(muzzle: Node3D) -> CPUParticles3D:
+	var p := _particles(60, 0.55, Color(0.45, 0.75, 1.0, 0.85), 0.07)
+	p.direction = Vector3(0, 0, -1)
+	p.spread = 3.0
+	p.initial_velocity_min = 15.0
+	p.initial_velocity_max = 18.0
+	p.gravity = Vector3(0, -9, 0)
+	p.scale_amount_min = 0.7
+	p.scale_amount_max = 1.5
+	p.local_coords = false
+	p.emitting = false
+	p.name = "WaterStream"
+	muzzle.add_child(p)
+	return p
+
+
+## Drips falling off a soaked adult (caller frees).
+static func drips(node: Node3D, height: float) -> CPUParticles3D:
+	var p := _particles(8, 0.5, Color(0.45, 0.75, 1.0), 0.06)
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	p.emission_box_extents = Vector3(0.3, height * 0.4, 0.3)
+	p.gravity = Vector3(0, -9, 0)
+	p.initial_velocity_min = 0.0
+	p.initial_velocity_max = 0.2
+	p.position = Vector3(0, height * 0.55, 0)
+	p.name = "Drips"
+	node.add_child(p)
 	p.emitting = true
 	return p

@@ -273,6 +273,29 @@ func _fill_deploy() -> void:
 		go.disabled = gs.cash < loc["fee"]
 		v.add_child(go)
 
+	# Wave Mode (specs/004).
+	var wt := _tile()
+	var wtile: PanelContainer = wt[0]
+	wtile.add_theme_stylebox_override("panel", UI.box(Color(0.2, 0.1, 0.16, 0.95), 12, 2, UI.BAD, 14))
+	deploy_tab.add_child(wtile)
+	var wrow := UI.hbox(18)
+	wt[1].add_child(wrow)
+	var winfo := UI.vbox(4)
+	winfo.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrow.add_child(winfo)
+	winfo.add_child(UI.label("REC CENTER SHOWDOWN  ·  WAVE MODE", 22, UI.BAD, true))
+	winfo.add_child(UI.wrap(UI.label("Hold the Sunnyvale Rec Center gym against endless waves of parents with toy blasters. " +
+		"Every 5th wave: Principal Grimsby. Cash is banked as you earn it; nothing is lost when you go down.", 15, UI.TEXT)))
+	var owned := []
+	for id in gs.BLASTER_ORDER:
+		if gs.blasters_owned[id]:
+			owned.append(gs.BLASTERS[id]["name"])
+	winfo.add_child(UI.label("Best wave: %s   ·   Blasters: %s" % [str(gs.best_wave) if gs.best_wave > 0 else "-", ", ".join(owned)], 14, UI.TEXT_DIM))
+	var wgo := UI.button("DEPLOY  -  FREE", main.start_waves, 20, 56)
+	wgo.custom_minimum_size = Vector2(260, 56)
+	wgo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	wrow.add_child(wgo)
+
 	var lo := _tile()
 	deploy_tab.add_child(lo[0])
 	var lv: VBoxContainer = lo[1]
@@ -372,6 +395,41 @@ func _fill_shop() -> void:
 			b = UI.button("BUY  $%d" % w["cost"], main.hub_buy_weapon.bind(id), 16, 38)
 			b.disabled = gs.cash < w["cost"]
 		v.add_child(b)
+	_fill_blasters()
+
+
+func _fill_blasters() -> void:
+	var gs := GameState
+	shop_tab.add_child(UI.label("BLASTERS  (Wave Mode only)", 17, UI.BAD, true))
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	shop_tab.add_child(grid)
+	for id in gs.BLASTER_ORDER:
+		var b: Dictionary = gs.BLASTERS[id]
+		var tv := _tile(330)
+		grid.add_child(tv[0])
+		var v: VBoxContainer = tv[1]
+		var head := UI.hbox(8)
+		var n := UI.label(b["name"], 18, UI.TEXT, true)
+		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head.add_child(n)
+		head.add_child(UI.label("BLASTER", 13, UI.BAD, true))
+		v.add_child(head)
+		v.add_child(UI.wrap(UI.label(b["role"], 14, UI.TEXT_DIM)))
+		var dps: float = b["damage"] * b["pellets"] / b["rate"]
+		_stat(v, "Damage", dps / 150.0)
+		_stat(v, "Range", b["range"] / 60.0)
+		_stat(v, "Magazine", b["mag"] / 30.0)
+		var b2: Button
+		if gs.blasters_owned[id]:
+			b2 = UI.button("OWNED  (slot %d)" % (gs.BLASTER_ORDER.find(id) + 1), func(): pass, 16, 38)
+			b2.disabled = true
+		else:
+			b2 = UI.button("BUY  $%d" % b["cost"], main.hub_buy_blaster.bind(id), 16, 38)
+			b2.disabled = gs.cash < b["cost"]
+		v.add_child(b2)
 
 
 func _stat(parent: Control, stat_name: String, frac: float) -> void:

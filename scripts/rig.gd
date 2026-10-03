@@ -106,6 +106,9 @@ func build(h: float, shirt: Color, pants: Color, skin: Color, opts := {}) -> voi
 		_part(torso, _box(Vector3(h * 0.2, h * 0.24, h * 0.1)), Vector3(0, torso_len * 0.55, h * 0.12), Shapes.mat(opts["backpack"]))
 	if opts.has("badge"):
 		_part(torso, _box(Vector3(h * 0.05, h * 0.05, h * 0.02)), Vector3(-h * 0.06, torso_len * 0.75, -h * 0.12), Shapes.mat(opts["badge"], 1.0))
+	if opts.has("tie"):
+		_part(torso, _box(Vector3(h * 0.035, torso_len * 0.6, h * 0.015)), Vector3(0, torso_len * 0.62, -h * 0.118 * girth), Shapes.mat(opts["tie"]), false)
+		_part(torso, _box(Vector3(h * 0.05, h * 0.03, h * 0.02)), Vector3(0, torso_len * 0.93, -h * 0.112 * girth), Shapes.mat(opts["tie"]), false)
 	if opts.has("whistle"):
 		_part(torso, _sphere(h * 0.02), Vector3(0, torso_len * 0.8, -h * 0.125), Shapes.mat(opts["whistle"]))
 
@@ -396,6 +399,16 @@ func _action_pose(action: String, t: float) -> Dictionary:
 		"dazed":
 			return {"torso_z": sin(t * 7.0) * 0.18, "torso_x": cos(t * 7.0) * 0.12 + 0.1, "head_z": sin(t * 7.0 + 1.0) * 0.3,
 				"sh_l_z": -0.5, "sh_r_z": 0.5, "el_l": 0.2, "el_r": 0.2, "kn_l": -0.25, "kn_r": -0.25}
+		"megaphone":
+			# Megaphone (left hand) raised to the mouth, leaning in.
+			var quiver := sin(t * 40.0) * 0.03
+			return {"sh_l_x": 1.9, "sh_l_z": 0.55, "el_l": 1.75, "torso_x": -0.25 + quiver, "head_x": -0.1,
+				"sh_r_x": 0.4, "sh_r_z": -0.5, "el_r": 0.6}
+		"throw":
+			# Release: arm whips forward and down.
+			var k := clampf(t / 0.12, 0.0, 1.0)
+			return {"sh_r_x": lerpf(-2.4, 1.2, k), "sh_r_z": 0.2, "el_r": lerpf(1.2, 0.0, k),
+				"torso_y": lerpf(0.6, -0.5, k), "torso_x": -0.2 * k, "sh_l_x": 0.9 - k * 0.8}
 		"block":
 			return {"sh_l_x": 1.5, "sh_r_x": 1.5, "sh_l_z": 0.45, "sh_r_z": -0.45, "el_l": 1.9, "el_r": 1.9, "torso_x": -0.15}
 	return {}

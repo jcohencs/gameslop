@@ -7,6 +7,8 @@ const KidScript := preload("res://scripts/kid.gd")
 const ParentScript := preload("res://scripts/parent.gd")
 const HudScript := preload("res://scripts/hud.gd")
 const HubScript := preload("res://scripts/hub.gd")
+const WavesScript := preload("res://scripts/waves.gd")
+const PickupScript := preload("res://scripts/pickup.gd")
 
 const MAX_PARENTS := 12
 const EXTRACT_RADIUS := 3.0
@@ -14,6 +16,11 @@ const EXTRACT_TIME := 5.0
 const ACTIVE_EXTRACTS := 2
 const WITNESS_RANGE := 9.0
 const RADIO_RANGE := 30.0
+const FLANK_RING_MIN := 3.0
+const FLANK_RING_MAX := 18.0
+const FLANK_STEP := 2.5
+const FLANK_TURN := 0.45
+const FLANK_REACH := deg_to_rad(135.0)
 
 var hub: CanvasLayer
 var env: Environment
@@ -32,6 +39,11 @@ var attackers: Array = []
 var awareness := 0
 var alert_cd := 0.0
 var talking_to: Node = null
+var mode := "raid"            # "raid" (extraction) or "waves" (Rec Center Showdown, specs/004)
+var director: Node = null     # wave director while in Wave Mode
+var flank_slots := {}         # chaser -> surround bearing (radians around the player, world frame)
+var throwers: Array = []      # ranged adults currently winding up a throw
+var _soak_numbers := 0
 
 
 func _ready() -> void:
@@ -124,6 +136,14 @@ func hub_buy_weapon(id: String) -> void:
 	if GameState.buy_weapon(id):
 		Sfx.play("cash")
 		hub.set_report("Bought the %s. It's equipped." % GameState.WEAPONS[id]["name"])
+	else:
+		hub.set_report("Can't afford that yet.", UI.BAD)
+
+
+func hub_buy_blaster(id: String) -> void:
+	if GameState.buy_blaster(id):
+		Sfx.play("cash")
+		hub.set_report("Bought the %s. Take it to the Rec Center!" % GameState.BLASTERS[id]["name"])
 	else:
 		hub.set_report("Can't afford that yet.", UI.BAD)
 
@@ -246,6 +266,9 @@ func _add_extract(info: Dictionary) -> void:
 func _end_raid(success: bool, reason: String) -> void:
 	if raid_over:
 		return
+	if mode == "waves":
+		_end_waves(reason)
+		return
 	raid_over = true
 	Engine.time_scale = 1.0
 	get_tree().paused = false
@@ -276,11 +299,263 @@ func _end_raid(success: bool, reason: String) -> void:
 
 
 func player_died() -> void:
+	if mode == "waves":
+		_end_raid(false, "KNOCKED OUT on wave %d!" % director.wave)
+		return
 	_end_raid(false, "GROUNDED! The parents caught you at %s." % GameState.LOCATIONS[GameState.location_id]["name"])
 
 
 func abandon_raid() -> void:
+	if mode == "waves":
+		_end_raid(false, "You called it a night on wave %d." % director.wave)
+		return
 	_end_raid(false, "You bailed on the raid.")
+
+
+# --- Wave Mode (specs/004) ---------------------------------------------------
+
+func start_waves() -> void:
+	GameState.start_waves()
+	mode = "waves"
+	level = Node3D.new()
+	add_child(level)
+	level.process_mode = Node.PROCESS_MODE_PAUSABLE
+	layout = Levels.build("arena", level)
+	Art.apply_mood(env, sky_mat, sun, "arena")
+	if layout.has("indoor"):
+		Art.dust_motes(level, layout["indoor"])
+
+	player = PlayerScript.new()
+	player.main = self
+	player.position = layout["spawn"]
+	level.add_child(player)
+	player.rotation.y = layout["spawn_yaw"]
+	hud.set_player(player)
+	hud.set_mode("waves")
+
+	director = WavesScript.new()
+	director.main = self
+	add_child(director)
+	director.start()
+	extracts.clear()
+	attackers.clear()
+	flank_slots.clear()
+	throwers.clear()
+	raid_over = false
+	Engine.time_scale = 1.0
+	hub.visible = false
+	hud.visible = true
+	hud.close_all()
+	_set_menu_mode(false)
+	GameState.say("REC CENTER SHOWDOWN! Hold the gym. LMB fire, RMB aim, R reload, 1-5 swap blasters.", UI.ACCENT)
+
+
+func _end_waves(reason: String) -> void:
+	raid_over = true
+	Engine.time_scale = 1.0
+	get_tree().paused = false
+	var reached: int = director.wave
+	var kos: int = director.kos
+	var earned: int = director.cash_earned()
+	var best := GameState.finish_waves(reached)
+	Sfx.play("fail", 0.0)
+	hub.set_report("%s  Waves survived: %d  ·  KOs: %d  ·  Cash earned: $%d%s" % [
+		reason, maxi(reached - 1, 0), kos, earned, "  ·  NEW BEST WAVE!" if best else "  ·  Best: wave %d" % GameState.best_wave],
+		UI.ACCENT if best else UI.GOOD)
+	GameState.heat = 0.0
+	GameState.health = GameState.max_health()
+	player = null
+	level.queue_free()
+	level = null
+	director.queue_free()
+	director = null
+	attackers.clear()
+	flank_slots.clear()
+	throwers.clear()
+	mode = "raid"
+	hud.set_mode("raid")
+	hud.close_all()
+	_show_hub()
+
+
+func _process_waves(delta: float) -> void:
+	alert_cd -= delta
+	director.tick(delta)
+	if raid_over:
+		return
+	var markers := []
+	for p in get_tree().get_nodes_in_group("parents"):
+		markers.append({"pos": p.global_position, "color": UI.BAD})
+	hud.set_markers(markers)
+	hud.refresh(delta, player)
+
+
+## Creates an adult for the current wave at a gym door (far from the player, preferably out of
+## sight) and sends it straight at the player.
+func spawn_wave_adult(type_id: String, hp_mult: float) -> Node:
+	if level == null:
+		return null
+	var doors: Array = layout["doors"].duplicate()
+	var eye: Vector3 = player.global_position + Vector3(0, 1.6, 0)
+	var space := player.get_world_3d().direct_space_state
+	var scored := []
+	for d in doors:
+		var dist: float = d.distance_to(player.global_position)
+		var q := PhysicsRayQueryParameters3D.create(eye, d + Vector3(0, 1.2, 0), 1)
+		var hidden := not space.intersect_ray(q).is_empty()
+		scored.append({"pos": d, "score": dist + (15.0 if hidden else 0.0) + randf() * 6.0})
+	scored.sort_custom(func(a, b): return a["score"] > b["score"])
+	var pos: Vector3 = scored[0]["pos"]
+	return _make_adult(type_id, hp_mult, pos + Vector3(randf_range(-1.0, 1.0), 0.1, randf_range(-1.0, 1.0)))
+
+
+func _make_adult(type_id: String, hp_mult: float, pos: Vector3) -> Node:
+	var p := ParentScript.new()
+	p.setup(type_id)
+	p.player = player
+	p.main = self
+	p.hp_mult = hp_mult
+	p.position = pos
+	level.add_child(p)
+	p.begin_chase(player.global_position)
+	return p
+
+
+## Boss backup call. Returns true when at least one adult arrived.
+func boss_summon(boss: Node, type_id: String, count: int) -> bool:
+	if director == null or level == null:
+		return false
+	var n := 0
+	for i in count:
+		if get_tree().get_nodes_in_group("parents").size() >= int(GameState.WAVE_CONFIG["max_alive"]) + 2:
+			break
+		var off := Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized() * 2.5
+		var p := _make_adult(type_id, _wave_hp_mult(), boss.global_position + off + Vector3(0, 0.1, 0))
+		director.alive.append(p)
+		n += 1
+	return n > 0
+
+
+func _wave_hp_mult() -> float:
+	return WavesScript.hp_mult(director.wave) if director else 1.0
+
+
+func on_parent_ko(p: Node) -> void:
+	flank_slots.erase(p)
+	throwers.erase(p)
+	if mode == "waves" and director:
+		director.on_ko(p)
+
+
+func on_wave_started(n: int, boss: bool) -> void:
+	Sfx.play("horn", 0.0)
+	var sub := "BOSS: %s" % ParentScript.TYPES[GameState.WAVE_CONFIG["boss"]]["name"] if boss else "%d adults incoming" % director.wave_total
+	hud.banner("WAVE %d" % n, sub, UI.BAD if boss else UI.ACCENT)
+	if layout.has("scoreboard") and is_instance_valid(layout["scoreboard"]):
+		layout["scoreboard"].text = "WAVE %d" % n
+
+
+func on_wave_cleared(n: int, bonus: int) -> void:
+	Sfx.play("extract", 0.0)
+	hud.banner("WAVE %d CLEARED" % n, "+$%d  ·  +%d HP  ·  ammo restocked" % [bonus, int(GameState.WAVE_CONFIG["clear_heal"])], UI.GOOD)
+
+
+func spawn_pickup(kind: String, pos: Vector3) -> void:
+	if level == null:
+		return
+	var pk := PickupScript.new()
+	pk.kind = kind
+	pk.life = GameState.WAVE_CONFIG["pickup_life"]
+	pk.main = self
+	pk.position = Vector3(pos.x, 0.55, pos.z)
+	level.add_child(pk)
+
+
+## A blaster hit landed: numbers, marker, and a BONK for headshots.
+func on_shot_hit(target: Node, at: Vector3, dmg: float, head: bool, id: String) -> void:
+	hud.hit_marker(head)
+	if id == "soaker":
+		_soak_numbers += 1
+		if _soak_numbers % 4 != 0:
+			return
+	spawn_damage_number(at, dmg, head)
+	if head and level:
+		Art.pop_word(level, at + Vector3(0, 0.35, 0), "BONK!", Color(1.0, 0.9, 0.3), 80)
+		Sfx.play("bonk", 0.05)
+
+
+## Rubber chicken impact.
+func spawn_explosion(at: Vector3, radius: float) -> void:
+	if level == null:
+		return
+	Art.feathers(level, at, radius)
+	Sfx.play("boom", 0.05)
+	if player and player.global_position.distance_to(at) < radius * 2.5:
+		player.shake = maxf(player.shake, 0.6)
+
+
+## Surround slots (specs/004 R3): each chaser gets a sticky bearing around the player, chosen
+## (within FLANK_REACH of where it is) to be as far as possible from the other chasers'
+## bearings. It then orbits toward that bearing (small steps, tangent heading, slight inward
+## drift) and closes in once it is near it, so the group fans out instead of forming a conga
+## line or cutting straight through the player.
+func flank_point(p: Node, dist: float) -> Vector3:
+	if player == null:
+		return p.global_position
+	for f in flank_slots.keys():
+		if not is_instance_valid(f) or not f.is_in_group("parents") or f.state != ParentScript.State.CHASE:
+			flank_slots.erase(f)
+	var rel: Vector3 = p.global_position - player.global_position
+	var cur := atan2(rel.z, rel.x)
+	if not flank_slots.has(p):
+		flank_slots[p] = _pick_slot(cur)
+	var diff := wrapf(float(flank_slots[p]) - cur, -PI, PI)
+	var step := clampf(diff, -FLANK_TURN, FLANK_TURN)
+	var ring: float
+	if absf(diff) < 0.5:
+		ring = dist - FLANK_STEP  # at the slot: close in
+	else:
+		# Orbit: a target at dist / cos(step) makes the heading tangent, with some inward drift.
+		ring = dist / cos(step) - FLANK_STEP * 0.5
+	ring = clampf(ring, FLANK_RING_MIN, FLANK_RING_MAX)
+	var bearing := cur + step
+	return player.global_position + Vector3(cos(bearing), 0, sin(bearing)) * ring
+
+
+func _pick_slot(own: float) -> float:
+	if flank_slots.is_empty():
+		return own
+	var best := own
+	var best_score := -INF
+	for i in 25:
+		var cand := own - FLANK_REACH + i * FLANK_REACH * 2.0 / 24.0
+		var gap := INF
+		for f in flank_slots:
+			gap = minf(gap, absf(wrapf(cand - float(flank_slots[f]), -PI, PI)))
+		var score := gap - 0.1 * absf(cand - own)
+		if score > best_score:
+			best_score = score
+			best = cand
+	return best
+
+
+func max_throwers() -> int:
+	var extra := 1 if director and director.wave >= int(GameState.WAVE_CONFIG["extra_thrower_wave"]) else 0
+	return int(GameState.WAVE_CONFIG["max_throwers"]) + extra
+
+
+func request_throw_token(p: Node) -> bool:
+	throwers = throwers.filter(func(a): return is_instance_valid(a) and a.has_throw_token)
+	if throwers.has(p):
+		return true
+	if throwers.size() >= max_throwers():
+		return false
+	throwers.append(p)
+	return true
+
+
+func release_throw_token(p: Node) -> void:
+	throwers.erase(p)
 
 
 # --- Spawning ----------------------------------------------------------------
@@ -406,6 +681,9 @@ func on_player_hurt(blocked: bool, from_pos: Vector3) -> void:
 
 func _process(delta: float) -> void:
 	if raid_over or get_tree().paused:
+		return
+	if mode == "waves":
+		_process_waves(delta)
 		return
 	var gs := GameState
 	alert_cd -= delta

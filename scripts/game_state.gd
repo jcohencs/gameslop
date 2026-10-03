@@ -111,6 +111,46 @@ const WEAPONS := {
 }
 const WEAPON_ORDER := ["knuckles", "brass", "foam", "gloves", "katana", "gauntlet", "sand"]
 
+## Wave Mode toy blasters (see specs/004). kind: "hitscan", "stream" (soaker ticks) or
+## "projectile" (rubber chicken). reserve -1 = infinite. spread in degrees.
+const BLASTERS := {
+	"dart": {"name": "Foam Dart Pistol", "kind": "hitscan", "cost": 0, "damage": 20.0, "rate": 0.2, "auto": false,
+		"mag": 12, "reserve": -1, "reload": 1.0, "spread": 0.8, "pellets": 1, "range": 60.0, "knock": 1.5,
+		"color": Color(1.0, 0.55, 0.1), "role": "Precise and reliable. Never runs dry."},
+	"soaker": {"name": "Super Soaker 3000", "kind": "stream", "cost": 150, "damage": 5.0, "rate": 0.06, "auto": true,
+		"mag": 80, "reserve": 240, "reload": 1.6, "spread": 4.0, "pellets": 1, "range": 10.0, "knock": 3.0,
+		"soak": 2.5, "color": Color(0.2, 0.75, 0.3), "role": "Short-range stream. Soaked adults slow down."},
+	"paint": {"name": "Paintball Rifle", "kind": "hitscan", "cost": 300, "damage": 13.0, "rate": 0.09, "auto": true,
+		"mag": 30, "reserve": 150, "reload": 1.8, "spread": 2.2, "pellets": 1, "range": 50.0, "knock": 0.8,
+		"mark": 4.0, "color": Color(0.6, 0.25, 0.9), "role": "Full-auto. Painted adults take +20% damage."},
+	"bubble": {"name": "Bubble Blunderbuss", "kind": "hitscan", "cost": 350, "damage": 10.0, "rate": 0.8, "auto": false,
+		"mag": 6, "reserve": 30, "reload": 2.2, "spread": 7.0, "pellets": 8, "range": 18.0, "knock": 9.0,
+		"color": Color(0.45, 0.85, 1.0), "role": "Close-range burst with huge knockback."},
+	"chicken": {"name": "Rubber Chicken Launcher", "kind": "projectile", "cost": 600, "damage": 110.0, "rate": 1.1, "auto": false,
+		"mag": 3, "reserve": 12, "reload": 2.4, "spread": 0.5, "pellets": 1, "range": 80.0, "knock": 12.0,
+		"splash": 4.0, "speed": 26.0, "color": Color(1.0, 0.85, 0.15), "role": "Arcing splash. BWAK!"},
+}
+const BLASTER_ORDER := ["dart", "soaker", "paint", "bubble", "chicken"]
+const AIM_SPREAD_MULT := 0.35
+const AIM_FOV_DROP := 15.0
+const HEADSHOT_MULT := 1.5
+const HEADSHOT_HEIGHT := 0.82   # share of an adult's height above which a hit is a headshot
+
+## Wave Mode tuning. budget(n) = budget_base + budget_per_wave * n.
+const WAVE_CONFIG := {
+	"budget_base": 4, "budget_per_wave": 3, "max_alive": 14, "spawn_interval": 1.1,
+	"intermission": 8.0, "first_delay": 2.0, "boss_every": 5, "boss_add_frac": 0.5,
+	"hp_growth": 0.06, "clear_bonus": 15, "clear_heal": 35.0, "clear_ammo": 0.5,
+	"ko_cash_mult": 0.25, "drop_ammo": 0.22, "drop_health": 0.1, "pickup_life": 20.0,
+	"max_throwers": 2, "extra_thrower_wave": 6, "boss": "principal", "boss_summon": "monitor",
+}
+## Adult types that can appear in waves: budget cost and the first wave they show up in.
+const WAVE_ENEMIES := {
+	"mom": {"cost": 1, "from": 1}, "dad": {"cost": 2, "from": 1}, "pitcher": {"cost": 3, "from": 2},
+	"balloon": {"cost": 3, "from": 3}, "pta": {"cost": 4, "from": 4}, "nana": {"cost": 4, "from": 6},
+	"coach": {"cost": 6, "from": 7},
+}
+
 ## Player movement profile (Quake/STRAFTAT style). Speeds in m/s. See specs/001-movement-retune.
 const MOVEMENT := {
 	"run_speed": 5.0, "sprint_speed": 6.8, "crouch_speed": 2.6,
@@ -145,6 +185,10 @@ var sand: int             # pocket sand packets, carried like supplies
 var upgrades: Dictionary
 var weapons_owned: Dictionary
 var weapon_id: String
+var blasters_owned: Dictionary
+var blaster_id: String
+var best_wave: int
+var wave_runs: int
 var orders: Array        # collector orders (see roll_orders)
 var raids: int
 var extracts: int
@@ -181,6 +225,12 @@ func reset() -> void:
 	for k in WEAPONS:
 		weapons_owned[k] = k == "knuckles"
 	weapon_id = "knuckles"
+	blasters_owned = {}
+	for k in BLASTERS:
+		blasters_owned[k] = k == "dart"
+	blaster_id = "dart"
+	best_wave = 0
+	wave_runs = 0
 	raids = 0
 	extracts = 0
 	scams = 0
@@ -397,6 +447,59 @@ func cycle_weapon(step: int) -> void:
 	var i := owned.find(weapon_id)
 	equip_weapon(owned[posmod(i + step, owned.size())])
 
+func blaster() -> Dictionary:
+	return BLASTERS[blaster_id]
+
+func buy_blaster(id: String) -> bool:
+	if blasters_owned[id]:
+		return false
+	if not try_spend(int(BLASTERS[id]["cost"])):
+		return false
+	blasters_owned[id] = true
+	blaster_id = id
+	say("Bought %s!" % BLASTERS[id]["name"], Color(0.5, 1, 0.5))
+	save_game()
+	changed.emit()
+	return true
+
+func equip_blaster(id: String) -> void:
+	if blasters_owned.get(id, false) and blaster_id != id:
+		blaster_id = id
+		changed.emit()
+
+func cycle_blaster(step: int) -> void:
+	var owned := []
+	for id in BLASTER_ORDER:
+		if blasters_owned[id]:
+			owned.append(id)
+	if owned.size() < 2:
+		return
+	var i := owned.find(blaster_id)
+	equip_blaster(owned[posmod(i + step, owned.size())])
+
+## Wave Mode: health/stamina reset for a fresh run (nothing else is at risk).
+func start_waves() -> void:
+	location_id = ""
+	raid_modifier = ""
+	heat = 0.0
+	health = max_health()
+	stamina = max_stamina()
+	wave_runs += 1
+	changed.emit()
+
+## Records a finished run. Returns true when it set a new best wave.
+func finish_waves(wave: int) -> bool:
+	var best := wave > best_wave
+	if best:
+		best_wave = wave
+	health = max_health()
+	save_game()
+	changed.emit()
+	return best
+
+func wave_budget(n: int) -> int:
+	return int(WAVE_CONFIG["budget_base"]) + int(WAVE_CONFIG["budget_per_wave"]) * n
+
 func buy_junk() -> bool:
 	if not try_spend(JUNK_PACK_COST):
 		return false
@@ -542,7 +645,7 @@ func has_save() -> bool:
 func save_game() -> void:
 	var cfg := ConfigFile.new()
 	for key in ["cash", "stash", "junk", "stickers", "sand", "orders", "upgrades", "weapons_owned", "weapon_id",
-			"raids", "extracts", "scams", "knockouts", "won"]:
+			"blasters_owned", "blaster_id", "best_wave", "wave_runs", "raids", "extracts", "scams", "knockouts", "won"]:
 		cfg.set_value("meta", key, get(key))
 	cfg.save(SAVE_PATH)
 
@@ -551,7 +654,8 @@ func load_game() -> bool:
 	if cfg.load(SAVE_PATH) != OK:
 		return false
 	reset()
-	for key in ["cash", "stash", "junk", "stickers", "sand", "raids", "extracts", "scams", "knockouts", "won", "weapon_id"]:
+	for key in ["cash", "stash", "junk", "stickers", "sand", "raids", "extracts", "scams", "knockouts", "won", "weapon_id",
+			"blaster_id", "best_wave", "wave_runs"]:
 		if cfg.has_section_key("meta", key):
 			set(key, cfg.get_value("meta", key))
 	# Merge dictionaries so newly added upgrades/weapons get defaults.
@@ -565,6 +669,13 @@ func load_game() -> bool:
 			weapons_owned[k] = saved_w[k]
 	if not weapons_owned.get(weapon_id, false):
 		weapon_id = "knuckles"
+	var saved_b: Dictionary = cfg.get_value("meta", "blasters_owned", {})
+	for k in saved_b:
+		if blasters_owned.has(k):
+			blasters_owned[k] = saved_b[k]
+	blasters_owned["dart"] = true
+	if not blasters_owned.get(blaster_id, false):
+		blaster_id = "dart"
 	var saved_orders: Array = cfg.get_value("meta", "orders", [])
 	if saved_orders.size() == ORDER_COUNT:
 		orders = saved_orders
@@ -616,6 +727,7 @@ func _setup_input() -> void:
 		"sprint": [KEY_SHIFT],
 		"crouch": [KEY_CTRL, KEY_C],
 		"throw_sand": [KEY_Q],
+		"reload": [KEY_R],
 		"interact": [KEY_E],
 		"pause": [KEY_ESCAPE],
 	}
