@@ -3,7 +3,7 @@ config_version=5
 
 [application]
 
-config/name="Card Shark: Playground Hustle"
+config/name="Card Shark: Extraction Hustle"
 config/description="Scam kids out of their trading cards, sell them, upgrade, and fight off angry parents."
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
@@ -11,11 +11,14 @@ config/features=PackedStringArray("4.3", "Forward Plus")
 [autoload]
 
 GameState="*res://scripts/game_state.gd"
+Sfx="*res://scripts/sfx.gd"
 
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [physics]
 

@@ -23,32 +23,53 @@ func idle(n: int) -> void:
 		await get_tree().process_frame
 
 
+func wait(t: float) -> void:
+	await get_tree().create_timer(t, true, false, true).timeout
+
+
 func _ready() -> void:
 	main = load("res://scenes/main.tscn").instantiate()
 	add_child(main)
 	await idle(5)
 	var gs := GameState
-	check(main.hub.visible and main.raid_over, "starts in the hideout")
+	check(main.hub.visible and main.hub.title_view.visible and main.raid_over, "starts on the title screen")
+	main.hub._new_game()
+	await idle(2)
+	check(main.hub.hub_view.visible, "new game opens the hideout")
 
-	# Hub shopping.
-	gs.cash = 2000
+	# Hideout shopping.
+	gs.cash = 3000
 	main.hub_buy_junk()
 	main.hub_buy_sticker()
 	check(gs.junk == 20 and gs.stickers == 1, "buy supplies")
-	main.hub_buy_fist("brass")
-	check(gs.fists_owned["brass"] and gs.fist_id == "brass", "buy + equip brass knuckles")
-	gs.buy_upgrade("tongue")
-	gs.buy_upgrade("protein")
-	check(gs.upgrades["tongue"] == 1 and gs.upgrades["protein"] == 1, "buy upgrades")
+	main.hub_buy_weapon("brass")
+	check(gs.weapons_owned["brass"] and gs.weapon_id == "brass", "buy + equip brass knuckles")
+	main.hub_buy_weapon("katana")
+	check(gs.weapons_owned["katana"] and gs.weapon_id == "katana", "buy + equip katana")
+	main.hub_upgrade("tongue")
+	main.hub_upgrade("cardio")
+	check(gs.upgrades["tongue"] == 1 and gs.max_stamina() == 125.0, "buy upgrades")
+	await idle(3)
 
-	# Every level builds and starts.
+	# Save / load round trip.
+	gs.save_game()
+	var saved_cash := gs.cash
+	gs.cash = 1
+	gs.load_game()
+	check(gs.cash == saved_cash and gs.weapons_owned["katana"], "save/load round trip")
+
+	# Every level builds, has a navmesh and starts.
 	for id in gs.LOCATIONS:
 		main.start_raid(id)
 		await frames(10)
 		check(not main.raid_over and main.level != null, "raid starts: " + id)
 		check(get_tree().get_nodes_in_group("kids").size() == gs.LOCATIONS[id]["kids"], "kids spawned: " + id)
 		check(main.extracts.size() == main.ACTIVE_EXTRACTS, "extracts active: " + id)
-		check(main.player.is_on_floor() or main.player.global_position.y > -1.0, "player didn't fall through: " + id)
+		var guards := get_tree().get_nodes_in_group("parents").filter(func(p): return p.is_guard())
+		check(guards.size() == 1, "guard patrols: " + id)
+		var map: RID = main.level.get_world_3d().navigation_map
+		var path := NavigationServer3D.map_get_path(map, main.layout["spawn"], main.layout["pois"][0], true)
+		check(path.size() >= 2, "navmesh path exists: " + id)
 		main._end_raid(false, "test abort")
 		await idle(2)
 	check(main.hub.visible, "back to hub after raid")
@@ -58,58 +79,149 @@ func _ready() -> void:
 	gs.stickers = 3
 	main.start_raid("locals")
 	await frames(10)
+	var guard = get_tree().get_nodes_in_group("parents")[0]
+	# Put the guard far away so he doesn't see this first scam.
+	guard.global_position = Vector3(-20, 0.1, -20)
 	for tactic in ["junk", "sticker", "ufo"]:
 		var kid = _tradeable_kid()
 		main.interact(kid)
-		check(main.hud.trade_panel.visible, "trade menu opens (%s)" % tactic)
+		check(main.hud.trade_panel.visible and get_tree().paused, "trade menu opens + pauses (%s)" % tactic)
 		main.do_trade(kid, tactic)
-		check(not main.hud.trade_panel.visible, "trade menu closes (%s)" % tactic)
+		check(not main.hud.trade_panel.visible and not get_tree().paused, "trade menu closes (%s)" % tactic)
 	await frames(5)
-	check(get_tree().get_nodes_in_group("parents").size() >= 1, "crying kid summons a parent")
+	var hunters := get_tree().get_nodes_in_group("parents").filter(func(p): return not p.is_guard())
+	check(hunters.size() >= 1, "crying kid summons a parent")
 
-	# Punch a parent standing right in front of us.
-	var p = get_tree().get_nodes_in_group("parents")[0]
+	# Witnesses: kids near a scam become wary.
+	var victim = _tradeable_kid()
+	var bystander = null
+	for k in get_tree().get_nodes_in_group("kids"):
+		if k != victim and k.can_trade():
+			bystander = k
+			break
+	bystander.global_position = victim.global_position + Vector3(2, 0, 0)
+	main.do_trade(victim, "ufo")
+	check(bystander.wary > 0.0, "nearby kid witnesses the scam and gets wary")
+
+	# Guard catches a scam in plain sight.
+	var victim2 = _tradeable_kid()
+	if victim2 == null:
+		main.spawn_kid()
+		await frames(2)
+		victim2 = _tradeable_kid()
+	guard.global_position = main.player.global_position + Vector3(0, 0, -6)
+	guard.look_at(main.player.global_position, Vector3.UP)
+	guard.rotation.x = 0
+	await frames(2)
+	var heat_before := gs.heat
+	main.do_trade(victim2, "ufo")
+	check(guard.awareness() >= 1 and gs.heat > heat_before, "guard witnesses scam and gives chase")
+
+	# AI perception: a parent investigating notices the player in front of them.
+	var dad = main.spawn_parent("dad")
+	await frames(1)
+	dad.global_position = main.player.global_position + Vector3(0, 0, -8)
+	dad.begin_investigate(dad.global_position + Vector3(0, 0, 10))
+	dad.look_at(main.player.global_position, Vector3.UP)
+	dad.rotation.x = 0
+	for i in 20:
+		await frames(1)
+		if dad.awareness() == 2:
+			break
+	check(dad.awareness() == 2, "parent spots the player (vision + LOS)")
+
+	# Attack tokens: never more than the allowed number swing at once.
+	await frames(60)
+	check(main.attackers.size() <= main.max_attackers(), "attack tokens limit simultaneous attackers")
+
+	# Clear the field for combat tests.
+	for p in get_tree().get_nodes_in_group("parents"):
+		p.take_damage(99999.0)
+	await frames(2)
+	var target = main.spawn_parent("pta")
+	await frames(1)
 	var fwd: Vector3 = -main.player.global_transform.basis.z
-	p.global_position = main.player.global_position + fwd * 1.5
+	target.global_position = main.player.global_position + fwd * 1.8
+	target.begin_chase(main.player.global_position)
 	await frames(1)
-	var hp_before: float = p.hp
-	main.player.punch_cd = 0.0
-	main.player.try_punch()
-	check(p.hp < hp_before and p.stun_timer > 0.0, "punch damages + stuns parent")
-	# Behind us: should not be hit.
-	p.global_position = main.player.global_position - fwd * 1.5
-	await frames(1)
-	hp_before = p.hp
-	main.player.punch_cd = 0.0
-	main.player.try_punch()
-	check(p.hp == hp_before, "punch misses parent behind you")
-	p.take_damage(9999.0)
-	check(p.dead, "parent knocked out")
 
-	# Blocking reduces damage.
+	# Light combo with the katana.
+	var hp0: float = target.hp
+	main.player.attack_cd = 0.0
+	main.player._start_attack(false)
+	await wait(0.3)
+	check(target.hp < hp0, "katana slash damages parent")
+	check(main.player.combo == 1, "combo advances")
+	target.global_position = main.player.global_position + fwd * 1.8
+	hp0 = target.hp
+	main.player.attack_cd = 0.0
+	main.player._start_attack(true)
+	await wait(0.35)
+	check(target.hp < hp0 and target.stun_timer > 0.0, "heavy attack damages + staggers")
+
+	# Behind the player: not hit.
+	target.global_position = main.player.global_position - fwd * 1.8
+	await frames(1)
+	hp0 = target.hp
+	main.player.attack_cd = 0.0
+	main.player._start_attack(false)
+	await wait(0.3)
+	check(target.hp == hp0, "attack misses parent behind you")
+
+	# Fists swap + punch.
+	gs.equip_weapon("brass")
+	await frames(2)
+	check(main.player.viewmodel.kind == "fist", "viewmodel swaps to fists")
+	target.global_position = main.player.global_position + fwd * 1.5
+	await frames(1)
+	hp0 = target.hp
+	main.player.attack_cd = 0.0
+	main.player._start_attack(false)
+	await wait(0.25)
+	check(target.hp < hp0, "punch damages parent")
+
+	# Blocking, parrying, guard break.
 	main.player.hurt_cd = 0.0
-	var h0 := gs.health
 	main.player.blocking = true
-	main.player.take_damage(20.0)
+	main.player.block_time = -10.0
+	var h0 := gs.health
+	var r: String = main.player.take_damage(20.0, Vector3.FORWARD, target)
 	var blocked := h0 - gs.health
-	main.player.blocking = false
+	check(r == "blocked" and blocked > 0.0 and blocked < 20.0, "block reduces damage")
 	main.player.hurt_cd = 0.0
+	main.player.block_time = main.player._time
 	h0 = gs.health
-	main.player.take_damage(20.0)
-	check(blocked < h0 - gs.health and blocked > 0.0, "block reduces damage")
+	r = main.player.take_damage(20.0, Vector3.FORWARD, target)
+	check(r == "parry" and gs.health == h0 and target.stun_timer > 1.0, "parry negates damage + stuns attacker")
+	main.player.hurt_cd = 0.0
+	main.player.block_time = -10.0
+	gs.stamina = 0.0
+	r = main.player.take_damage(20.0, Vector3.FORWARD, target)
+	check(main.player.guard_broken > 0.0, "guard breaks with no stamina")
+	main.player.blocking = false
+	target.take_damage(99999.0)
+	check(target.state == target.State.KO, "parent knocked out")
+
+	# Pause menu.
+	main._set_menu_mode(true)
+	main.hud.show_pause()
+	check(get_tree().paused and main.hud.pause_panel.visible, "pause menu")
+	main.resume()
+	check(not get_tree().paused, "resume")
 
 	# Extract.
+	for par in get_tree().get_nodes_in_group("parents"):
+		par.take_damage(99999.0)
+	gs.heat = 0.0
 	var carried: int = gs.binder.size()
 	check(carried >= 1, "binder has cards")
-	for par in get_tree().get_nodes_in_group("parents"):
-		par.take_damage(9999.0)
-	gs.heat = 0.0
 	main.player.global_position = main.extracts[0]["pos"] + Vector3(0, 0.2, 0)
 	for i in 150:
-		await get_tree().create_timer(0.1).timeout
+		await wait(0.1)
 		if main.raid_over:
 			break
 	check(main.raid_over and gs.stash.size() == carried and gs.binder.is_empty(), "extraction moves binder to stash")
+	await idle(2)
 	var cash := gs.cash
 	var value := gs.cards_value(gs.stash)
 	main.hub_sell()
@@ -122,21 +234,25 @@ func _ready() -> void:
 	main.player.hurt_cd = 0.0
 	main.player.take_damage(99999.0)
 	await idle(2)
-	check(main.raid_over and gs.binder.is_empty() and gs.stash.is_empty() and gs.junk == 0, "death loses binder + supplies")
+	check(main.raid_over and gs.binder.is_empty() and gs.junk == 0, "knockout loses binder + supplies")
 
-	# Timer running out loses too.
+	# Timer running out / abandoning.
 	main.start_raid("playground")
 	await frames(3)
 	gs.raid_time_left = 0.01
 	await idle(3)
 	check(main.raid_over, "raid timer runs out")
+	main.start_raid("playground")
+	await frames(3)
+	main.abandon_raid()
+	check(main.raid_over, "abandon raid")
 
 	# PTA raid at max heat.
 	main.start_raid("playground")
 	await frames(3)
 	gs.heat = 100.0
 	await idle(3)
-	check(get_tree().get_nodes_in_group("parents").size() >= 4, "PTA raid at max heat")
+	check(get_tree().get_nodes_in_group("parents").size() >= 5, "PTA raid at max heat")
 	main._end_raid(false, "test")
 	await idle(2)
 
@@ -144,7 +260,8 @@ func _ready() -> void:
 	main.hub_win()
 	check(gs.won, "win")
 
-	await idle(30)
+	gs.delete_save()
+	await idle(10)
 	print("\nSMOKE TEST: %s (%d failures)" % ["OK" if failures == 0 else "FAILED", failures])
 	get_tree().quit(1 if failures else 0)
 

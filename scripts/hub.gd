@@ -1,140 +1,411 @@
 extends CanvasLayer
-## The Shady Van hideout: sell your stash, gear up, and pick a place to hustle.
+## Title screen + the Shady Van hideout (tabs: Deploy, Stash, Shop, Upgrades).
 
-const Hud := preload("res://scripts/hud.gd")
+const CardView := preload("res://scripts/ui/card_view.gd")
+const SettingsPanel := preload("res://scripts/ui/settings_panel.gd")
 
 var main: Node
-var header: Label
+var root: Control
+var bg_cards: Array = []
+var title_view: Control
+var hub_view: Control
+var settings: PanelContainer
+var cash_label: Label
+var stats_label: Label
+var report_panel: PanelContainer
 var report: Label
-var shop_list: VBoxContainer
-var deploy_list: VBoxContainer
+var tabs: TabContainer
+var deploy_tab: VBoxContainer
+var stash_tab: VBoxContainer
+var shop_tab: VBoxContainer
+var upgrades_tab: VBoxContainer
+var continue_button: Button
+var _dirty := true
 
 
 func _ready() -> void:
 	layer = 5
+	root = Control.new()
+	root.theme = UI.theme()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(root)
+	_build_background()
+	_build_title()
+	_build_hub()
+	settings = SettingsPanel.new()
+	settings.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	settings.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	settings.grow_vertical = Control.GROW_DIRECTION_BOTH
+	settings.visible = false
+	settings.closed.connect(func(): settings.visible = false)
+	root.add_child(settings)
+	GameState.changed.connect(func(): _dirty = true)
+	show_title()
+
+
+# --- Background --------------------------------------------------------------
+
+func _build_background() -> void:
 	var bg := ColorRect.new()
-	bg.color = Color(0.09, 0.07, 0.12)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
-
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 24)
-	add_child(margin)
-	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 10)
-	margin.add_child(root)
-
-	root.add_child(Hud.make_label("THE SHADY VAN  -  hideout", 30, Color(1, 0.8, 0.2)))
-	header = Hud.make_label("", 18)
-	root.add_child(header)
-	report = Hud.make_label("", 18, Color(0.6, 1, 0.6))
-	report.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	root.add_child(report)
-
-	var cols := HBoxContainer.new()
-	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	cols.add_theme_constant_override("separation", 20)
-	root.add_child(cols)
-
-	shop_list = _column(cols, "SHOP", 1.2)
-	deploy_list = _column(cols, "DEPLOY", 1.0)
-
-	GameState.changed.connect(refresh)
-	refresh()
+	var sh := Shader.new()
+	sh.code = """shader_type canvas_item;
+void fragment() {
+	vec2 uv = UV;
+	float stripes = step(0.5, fract((uv.x + uv.y) * 14.0 - TIME * 0.15));
+	vec3 a = vec3(0.07, 0.055, 0.11);
+	vec3 b = vec3(0.09, 0.07, 0.14);
+	vec3 col = mix(a, b, stripes);
+	col += vec3(0.25, 0.15, 0.02) * smoothstep(0.9, 0.0, distance(uv, vec2(0.5, 1.1))) * 0.6;
+	COLOR = vec4(col, 1.0);
+}"""
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	bg.material = m
+	root.add_child(bg)
+	for i in 9:
+		var cv := CardView.new(GameState.roll_card(1.5), Vector2(120, 168))
+		cv.show_price = false
+		cv.modulate.a = 0.22
+		cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(cv)
+		cv.position = Vector2(randf_range(0, 1280), randf_range(0, 720))
+		cv.rotation = randf_range(-0.5, 0.5)
+		bg_cards.append({"node": cv, "vel": Vector2(randf_range(-15, 15), randf_range(-25, -8)), "spin": randf_range(-0.15, 0.15)})
 
 
-func _column(parent: Control, title: String, ratio: float) -> VBoxContainer:
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", Hud.panel_style(0.8))
-	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.size_flags_stretch_ratio = ratio
-	parent.add_child(panel)
-	var v := VBoxContainer.new()
-	panel.add_child(v)
-	v.add_child(Hud.make_label(title, 22, Color(0.7, 0.85, 1.0)))
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	v.add_child(scroll)
-	var list := VBoxContainer.new()
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(list)
-	return list
-
-
-func set_report(text: String, color := Color(0.6, 1, 0.6)) -> void:
-	report.text = text
-	report.add_theme_color_override("font_color", color)
-
-
-func refresh() -> void:
+func _process(delta: float) -> void:
 	if not visible:
 		return
+	var vp := root.get_viewport_rect().size
+	for c in bg_cards:
+		var n: Control = c["node"]
+		n.position += c["vel"] * delta
+		n.rotation += c["spin"] * delta
+		if n.position.y < -200:
+			n.position = Vector2(randf_range(0, vp.x), vp.y + 20)
+		if n.position.x < -150:
+			n.position.x = vp.x
+		elif n.position.x > vp.x + 50:
+			n.position.x = -120
+	if _dirty and hub_view.visible:
+		_dirty = false
+		_refresh()
+
+
+# --- Title -------------------------------------------------------------------
+
+func _build_title() -> void:
+	title_view = UI.vbox(14)
+	title_view.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	title_view.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	title_view.grow_vertical = Control.GROW_DIRECTION_BOTH
+	title_view.alignment = BoxContainer.ALIGNMENT_CENTER
+	root.add_child(title_view)
+	var t := UI.label("CARD SHARK", 92, UI.ACCENT, true)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	t.add_theme_constant_override("outline_size", 14)
+	title_view.add_child(t)
+	var sub := UI.label("E X T R A C T I O N   H U S T L E", 24, UI.TEXT, true)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title_view.add_child(sub)
+	var tag := UI.label("Scam kids. Punch parents. Get out with the cards.", 17, UI.TEXT_DIM)
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title_view.add_child(tag)
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, 20)
+	title_view.add_child(spacer)
+	var buttons := UI.vbox(10)
+	buttons.custom_minimum_size = Vector2(340, 0)
+	buttons.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	title_view.add_child(buttons)
+	continue_button = UI.button("Continue", _continue, 22, 52)
+	buttons.add_child(continue_button)
+	buttons.add_child(UI.button("New Game", _new_game, 22, 52))
+	buttons.add_child(UI.button("Settings", func(): settings.visible = true, 22, 52))
+	buttons.add_child(UI.button("Quit", func(): get_tree().quit(), 22, 52))
+
+
+func show_title() -> void:
+	visible = true
+	title_view.visible = true
+	hub_view.visible = false
+	continue_button.visible = GameState.has_save()
+
+
+func _continue() -> void:
+	GameState.load_game()
+	show_hub()
+	set_report("Welcome back. The van smells like cards and regret.", UI.ACCENT)
+
+
+func _new_game() -> void:
+	GameState.reset()
+	GameState.save_game()
+	show_hub()
+	set_report("Welcome to the hustle. Pick a spot, scam some kids, punch out the parents, and EXTRACT before time runs out. " +
+		"Earn $%d to buy your own Card Shop Empire." % GameState.WIN_COST, UI.ACCENT)
+	tabs.current_tab = 0
+
+
+func show_hub() -> void:
+	visible = true
+	title_view.visible = false
+	hub_view.visible = true
+	_dirty = true
+	_refresh()
+
+
+# --- Hub layout --------------------------------------------------------------
+
+func _build_hub() -> void:
+	hub_view = MarginContainer.new()
+	hub_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "right", "top", "bottom"]:
+		hub_view.add_theme_constant_override("margin_" + side, 22)
+	root.add_child(hub_view)
+	var v := UI.vbox(10)
+	hub_view.add_child(v)
+
+	var top := UI.hbox(16)
+	v.add_child(top)
+	var title := UI.label("THE SHADY VAN", 32, UI.ACCENT, true)
+	top.add_child(title)
+	stats_label = UI.label("", 15, UI.TEXT_DIM)
+	stats_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stats_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	top.add_child(stats_label)
+	cash_label = UI.label("", 32, UI.GOOD, true)
+	top.add_child(cash_label)
+	top.add_child(UI.button("Settings", func(): settings.visible = true, 16, 40))
+	top.add_child(UI.button("Title", show_title, 16, 40))
+
+	report_panel = UI.panel(0.85, UI.ACCENT)
+	v.add_child(report_panel)
+	report = UI.wrap(UI.label("", 17, UI.TEXT))
+	report_panel.add_child(report)
+
+	tabs = TabContainer.new()
+	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tabs.tab_changed.connect(func(_i): Sfx.play("click"))
+	v.add_child(tabs)
+	deploy_tab = _tab("DEPLOY")
+	stash_tab = _tab("STASH")
+	shop_tab = _tab("SHOP")
+	upgrades_tab = _tab("UPGRADES")
+
+
+func _tab(title: String) -> VBoxContainer:
+	var scroll := ScrollContainer.new()
+	scroll.name = title
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tabs.add_child(scroll)
+	var v := UI.vbox(12)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(v)
+	return v
+
+
+func set_report(text: String, color := UI.GOOD) -> void:
+	report.text = text
+	report.add_theme_color_override("font_color", color)
+	report_panel.add_theme_stylebox_override("panel", UI.box(Color(UI.PANEL, 0.85), 12, 2, color, 14))
+	report_panel.modulate.a = 0.0
+	report_panel.create_tween().tween_property(report_panel, "modulate:a", 1.0, 0.25)
+
+
+func _refresh() -> void:
 	var gs := GameState
-	header.text = "Cash: $%d    Stash: %d cards (sells for $%d)    Raids: %d   Extracts: %d   Parents KO'd: %d" % [
-		gs.cash, gs.stash.size(), gs.cards_value(gs.stash), gs.raids, gs.extracts, gs.knockouts]
-	_fill_shop()
+	cash_label.text = "$%d" % gs.cash
+	stats_label.text = "Stash: %d cards ($%d)   ·   Raids %d   ·   Extracts %d   ·   Scams %d   ·   KOs %d" % [
+		gs.stash.size(), gs.cards_value(gs.stash), gs.raids, gs.extracts, gs.scams, gs.knockouts]
+	tabs.set_tab_title(1, "STASH (%d)" % gs.stash.size())
 	_fill_deploy()
+	_fill_stash()
+	_fill_shop()
+	_fill_upgrades()
 
 
-func _section(list: VBoxContainer, text: String) -> void:
-	list.add_child(Hud.make_label(text, 16, Color(0.7, 0.8, 1.0)))
-
-
-func _add(list: VBoxContainer, text: String, cb: Callable, disabled := false) -> void:
-	var b := Hud.make_button(text, cb)
-	b.disabled = disabled
-	list.add_child(b)
-
-
-func _fill_shop() -> void:
-	var gs := GameState
-	for c in shop_list.get_children():
+func _clear(n: Node) -> void:
+	for c in n.get_children():
 		c.queue_free()
 
-	_section(shop_list, "SELL")
-	_add(shop_list, "Sell entire stash  (+$%d)" % gs.cards_value(gs.stash), main.hub_sell, gs.stash.is_empty())
 
-	_section(shop_list, "SUPPLIES (you carry these in - lost if you don't extract)")
-	_add(shop_list, "Pack of %d junk cards  -  $%d   (have %d)" % [gs.JUNK_PACK_SIZE, gs.JUNK_PACK_COST, gs.junk], main.hub_buy_junk)
-	_add(shop_list, "Holo sticker  -  $%d   (have %d)" % [gs.STICKER_COST, gs.stickers], main.hub_buy_sticker)
+func _tile(min_w := 0.0) -> Array:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", UI.box(Color(0.14, 0.13, 0.2, 0.95), 12, 2, Color(1, 1, 1, 0.06), 14))
+	p.custom_minimum_size = Vector2(min_w, 0)
+	var v := UI.vbox(6)
+	p.add_child(v)
+	return [p, v]
 
-	_section(shop_list, "FISTS  (equip: click, or 1-4 in a raid)")
-	for id in gs.FISTS:
-		var f: Dictionary = gs.FISTS[id]
-		var stats := "dmg %d, knockback %d" % [f["damage"], f["knock"]]
-		if gs.fists_owned[id]:
-			var eq := "EQUIPPED" if gs.fist_id == id else "equip"
-			_add(shop_list, "%s  (%s)  -  %s" % [f["name"], stats, eq], gs.equip_fist.bind(id), gs.fist_id == id)
-		else:
-			_add(shop_list, "%s  (%s)  -  $%d" % [f["name"], stats, f["cost"]], main.hub_buy_fist.bind(id))
 
-	_section(shop_list, "UPGRADES (permanent)")
-	for id in gs.UPGRADES:
-		var u: Dictionary = gs.UPGRADES[id]
-		var lvl: int = gs.upgrades[id]
-		var maxed: bool = lvl >= u["max"]
-		var price := "MAXED" if maxed else "$%d" % gs.upgrade_cost(id)
-		_add(shop_list, "%s  [%d/%d]  %s  -  %s" % [u["name"], lvl, u["max"], u["desc"], price], gs.buy_upgrade.bind(id), maxed)
-
-	_section(shop_list, "THE DREAM")
-	_add(shop_list, "Buy your own Card Shop Empire  -  $%d" % gs.WIN_COST, main.hub_win, gs.won)
-
+# --- Deploy ------------------------------------------------------------------
 
 func _fill_deploy() -> void:
 	var gs := GameState
-	for c in deploy_list.get_children():
-		c.queue_free()
+	_clear(deploy_tab)
+	var row := UI.hbox(14)
+	deploy_tab.add_child(row)
 	for id in gs.LOCATIONS:
 		var loc: Dictionary = gs.LOCATIONS[id]
-		var fee := "free" if loc["fee"] == 0 else "$%d entry" % loc["fee"]
-		_add(deploy_list, "GO: %s  (%s)" % [loc["name"], fee], main.start_raid.bind(id), gs.cash < loc["fee"])
-		var d := Hud.make_label("%s\n%d:%02d raid timer, %d kids." % [loc["desc"], int(loc["time"]) / 60, int(loc["time"]) % 60, loc["kids"]], 15, Color(0.8, 0.8, 0.85))
-		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		deploy_list.add_child(d)
-	var tip := Hud.make_label("\nHow raids work: scam kids, then reach a green EXTRACT zone and stay in it to escape. " +
-		"Die or run out of time and your binder and supplies are gone. Cash, stash and upgrades are always safe.", 15, Color(1, 0.85, 0.5))
-	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	deploy_list.add_child(tip)
+		var tv := _tile(330)
+		var tile: PanelContainer = tv[0]
+		var v: VBoxContainer = tv[1]
+		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(tile)
+		v.add_child(UI.wrap(UI.label(loc["name"], 21, UI.ACCENT, true)))
+		var diff := UI.hbox(8)
+		diff.add_child(UI.label("Danger", 14, UI.TEXT_DIM))
+		diff.add_child(UI.pips(loc["difficulty"], 3, UI.BAD))
+		diff.add_child(UI.label("   Loot", 14, UI.TEXT_DIM))
+		diff.add_child(UI.pips(1 + int(loc["rarity_bonus"]), 4, UI.ACCENT))
+		v.add_child(diff)
+		v.add_child(UI.wrap(UI.label(loc["desc"], 15, UI.TEXT)))
+		var guard: String = load("res://scripts/parent.gd").TYPES[loc["guard"]]["name"]
+		v.add_child(UI.label("Timer %d:%02d  ·  %d kids  ·  Guard: %s" % [int(loc["time"]) / 60, int(loc["time"]) % 60, loc["kids"], guard], 14, UI.TEXT_DIM))
+		var fee := "FREE ENTRY" if loc["fee"] == 0 else "ENTRY $%d" % loc["fee"]
+		var go := UI.button("DEPLOY  -  %s" % fee, main.start_raid.bind(id), 19, 50)
+		go.disabled = gs.cash < loc["fee"]
+		v.add_child(go)
+
+	var lo := _tile()
+	deploy_tab.add_child(lo[0])
+	var lv: VBoxContainer = lo[1]
+	lv.add_child(UI.label("LOADOUT", 18, UI.INFO, true))
+	lv.add_child(UI.label("Weapon: %s     Binder slots: %d     Max HP: %d     Max stamina: %d" % [
+		gs.weapon()["name"], gs.capacity(), gs.max_health(), gs.max_stamina()], 15, UI.TEXT))
+	var sup := UI.label("Junk cards: %d     Holo stickers: %d     (lost if you don't extract)" % [gs.junk, gs.stickers], 15,
+		UI.BAD if gs.junk == 0 else UI.TEXT)
+	lv.add_child(sup)
+	if gs.junk == 0:
+		lv.add_child(UI.label("You have no junk cards! Buy some in the SHOP tab, or you'll only have the UFO trick.", 15, UI.BAD))
+	lv.add_child(UI.wrap(UI.label("Raid rules: scam kids, then stand in a green EXTRACT zone to escape. Two of three extracts are open each raid. " +
+		"Get knocked out or run out of time and you lose your binder and supplies. Cash, stash and upgrades are always safe.", 14, UI.TEXT_DIM)))
+
+
+# --- Stash -------------------------------------------------------------------
+
+func _fill_stash() -> void:
+	var gs := GameState
+	_clear(stash_tab)
+	var head := UI.hbox(12)
+	stash_tab.add_child(head)
+	var l := UI.label("%d cards  ·  worth $%d" % [gs.stash.size(), gs.cards_value(gs.stash)], 20, UI.TEXT, true)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(l)
+	var sell := UI.button("SELL EVERYTHING  (+$%d)" % gs.cards_value(gs.stash), main.hub_sell, 18, 46)
+	sell.disabled = gs.stash.is_empty()
+	head.add_child(sell)
+	if gs.stash.is_empty():
+		stash_tab.add_child(UI.label("Your stash is empty. Extract with cards to fill it.", 16, UI.TEXT_DIM))
+		return
+	var grid := GridContainer.new()
+	grid.columns = 7
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	stash_tab.add_child(grid)
+	for i in gs.stash.size():
+		var cell := UI.vbox(4)
+		var cv := CardView.new(gs.stash[i], Vector2(140, 196))
+		cell.add_child(cv)
+		cell.add_child(UI.button("Sell $%d" % gs.card_sell_value(gs.stash[i]), main.hub_sell_card.bind(i), 15, 32))
+		grid.add_child(cell)
+
+
+# --- Shop --------------------------------------------------------------------
+
+func _fill_shop() -> void:
+	var gs := GameState
+	_clear(shop_tab)
+	shop_tab.add_child(UI.label("SUPPLIES  (you carry these into raids)", 17, UI.INFO, true))
+	var sup := UI.hbox(12)
+	shop_tab.add_child(sup)
+	for item in [["Pack of %d junk cards" % gs.JUNK_PACK_SIZE, "Bait for the classic \"super rare\" trade.", gs.JUNK_PACK_COST, gs.junk, main.hub_buy_junk],
+			["Holo sticker", "Makes junk look shiny. Best scam odds, almost no heat.", gs.STICKER_COST, gs.stickers, main.hub_buy_sticker]]:
+		var tv := _tile(300)
+		sup.add_child(tv[0])
+		var v: VBoxContainer = tv[1]
+		v.add_child(UI.label(item[0], 18, UI.TEXT, true))
+		v.add_child(UI.wrap(UI.label(item[1], 14, UI.TEXT_DIM)))
+		v.add_child(UI.label("You have: %d" % item[3], 14, UI.TEXT))
+		var b := UI.button("BUY  $%d" % item[2], item[4], 17, 40)
+		b.disabled = gs.cash < item[2]
+		v.add_child(b)
+
+	shop_tab.add_child(UI.label("WEAPONS", 17, UI.INFO, true))
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	shop_tab.add_child(grid)
+	for id in gs.WEAPON_ORDER:
+		var w: Dictionary = gs.WEAPONS[id]
+		var tv := _tile(330)
+		grid.add_child(tv[0])
+		var v: VBoxContainer = tv[1]
+		var head := UI.hbox(8)
+		var n := UI.label(w["name"], 18, UI.TEXT, true)
+		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head.add_child(n)
+		head.add_child(UI.label(w["kind"].to_upper(), 13, UI.ACCENT if w["kind"] == "sword" else UI.INFO, true))
+		v.add_child(head)
+		_stat(v, "Damage", w["damage"] / 50.0)
+		_stat(v, "Speed", 1.0 - (w["rate"] - 0.25) / 0.35)
+		_stat(v, "Reach", (w["range"] - 1.8) / 1.6)
+		_stat(v, "Knockback", w["knock"] / 15.0)
+		var b: Button
+		if gs.weapons_owned[id]:
+			var eq: bool = gs.weapon_id == id
+			b = UI.button("EQUIPPED" if eq else "EQUIP", main.hub_equip.bind(id), 16, 38)
+			b.disabled = eq
+		else:
+			b = UI.button("BUY  $%d" % w["cost"], main.hub_buy_weapon.bind(id), 16, 38)
+			b.disabled = gs.cash < w["cost"]
+		v.add_child(b)
+
+
+func _stat(parent: Control, stat_name: String, frac: float) -> void:
+	var row := UI.hbox(8)
+	var l := UI.label(stat_name, 13, UI.TEXT_DIM)
+	l.custom_minimum_size = Vector2(80, 0)
+	row.add_child(l)
+	var bar := UI.bar(UI.ACCENT, Vector2(200, 8))
+	bar.value = clampf(frac, 0.05, 1.0) * 100.0
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(bar)
+	parent.add_child(row)
+
+
+# --- Upgrades ----------------------------------------------------------------
+
+func _fill_upgrades() -> void:
+	var gs := GameState
+	_clear(upgrades_tab)
+	var grid := GridContainer.new()
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	upgrades_tab.add_child(grid)
+	for id in gs.UPGRADES:
+		var u: Dictionary = gs.UPGRADES[id]
+		var lvl: int = gs.upgrades[id]
+		var tv := _tile(250)
+		grid.add_child(tv[0])
+		var v: VBoxContainer = tv[1]
+		v.add_child(UI.label(u["name"], 18, UI.TEXT, true))
+		v.add_child(UI.label(u["desc"], 14, UI.TEXT_DIM))
+		v.add_child(UI.pips(lvl, u["max"]))
+		var maxed: bool = lvl >= u["max"]
+		var b := UI.button("MAXED" if maxed else "UPGRADE  $%d" % gs.upgrade_cost(id), main.hub_upgrade.bind(id), 16, 38)
+		b.disabled = maxed or gs.cash < gs.upgrade_cost(id)
+		v.add_child(b)
+
+	var tv := _tile()
+	upgrades_tab.add_child(tv[0])
+	var dv: VBoxContainer = tv[1]
+	dv.add_child(UI.label("THE DREAM: Card Shark's Collectibles Emporium", 20, UI.ACCENT, true))
+	dv.add_child(UI.label("Your own card shop, right across from Dragon's Den. You win.", 15, UI.TEXT_DIM))
+	var win := UI.button("OWNED" if gs.won else "BUY THE EMPIRE  $%d" % gs.WIN_COST, main.hub_win, 18, 46)
+	win.disabled = gs.won
+	dv.add_child(win)

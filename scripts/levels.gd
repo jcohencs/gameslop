@@ -1,16 +1,33 @@
 class_name Levels
-## Procedural level geometry. Each builder fills `root` and returns layout info:
-## spawn, spawn_yaw, kid_bounds (Rect2 over x/z), extracts [{name, pos}], parent_spawns.
+## Procedural level geometry. Each builder fills a NavigationRegion3D (which is then
+## baked so the AI can path around obstacles) and returns layout info:
+## half (arena half-size), spawn, spawn_yaw, kid_bounds (Rect2 over x/z),
+## extracts [{name, pos}], parent_spawns, patrol (guard waypoints), pois (kid hangouts).
 
 
 static func build(id: String, root: Node3D) -> Dictionary:
+	var region := NavigationRegion3D.new()
+	var nm := NavigationMesh.new()
+	nm.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	nm.agent_radius = 0.5
+	nm.agent_height = 1.75
+	nm.agent_max_climb = 0.25
+	nm.cell_size = 0.25
+	nm.cell_height = 0.25
+	region.navigation_mesh = nm
+	root.add_child(region)
+	var info: Dictionary
 	match id:
 		"locals":
-			return _locals(root)
+			info = _locals(region)
 		"mall":
-			return _mall(root)
+			info = _mall(region)
 		_:
-			return _playground(root)
+			info = _playground(region)
+	var half: float = info["half"]
+	nm.filter_baking_aabb = AABB(Vector3(-half, -1, -half), Vector3(half * 2, 6, half * 2))
+	region.bake_navigation_mesh(false)
+	return info
 
 
 # --- Shared bits -------------------------------------------------------------
@@ -119,6 +136,9 @@ static func _playground(root: Node3D) -> Dictionary:
 	Shapes.solid_box(root, Vector3(2.4, 2.6, 4.5), Vector3(26, 1.3, 22), Color(0.95, 0.95, 1.0)) # ice cream truck
 
 	return {
+		"half": half,
+		"patrol": [Vector3(15, 0, 12), Vector3(-10, 0, 14), Vector3(-16, 0, -12), Vector3(14, 0, -14), Vector3(0, 0, 2)],
+		"pois": [Vector3(8, 0, -3), Vector3(1, 0, 9.5), Vector3(-8, 0, -5), Vector3(-18, 0, -5), Vector3(-14, 0, 12), Vector3(0, 0, 17)],
 		"spawn": Vector3(18, 0.1, 16), "spawn_yaw": PI * 0.25,
 		"kid_bounds": Rect2(-24, -18, 48, 42),
 		"extracts": [
@@ -184,6 +204,9 @@ static func _locals(root: Node3D) -> Dictionary:
 	Shapes.solid_box(root, Vector3(0.6, 2.4, 0.6), Vector3(-20, 1.2, 20), Color(0.2, 0.3, 0.6)) # bus stop pole
 
 	return {
+		"half": half,
+		"patrol": [Vector3(0, 0, 2), Vector3(-11, 0, -4), Vector3(-11, 0, -13.5), Vector3(11, 0, -13.5), Vector3(11, 0, -4), Vector3(0, 0, -8.7)],
+		"pois": [Vector3(-7, 0, -9.3), Vector3(7, 0, -9.3), Vector3(-7, 0, -4.2), Vector3(7, 0, -4.2), Vector3(-7, 0, 0.2), Vector3(7, 0, 0.2), Vector3(11.5, 0, -1)],
 		"spawn": Vector3(0, 0.1, 18), "spawn_yaw": 0.0,
 		"kid_bounds": Rect2(-11, -14, 22, 17),
 		"extracts": [
@@ -242,6 +265,10 @@ static func _mall(root: Node3D) -> Dictionary:
 	_sign(root, "SUNGLASSES", Vector3(-7, 1.9, 0), Color(1, 1, 0.4), 60)
 
 	return {
+		"half": half,
+		"patrol": [Vector3(-18, 0, -18), Vector3(18, 0, -18), Vector3(18, 0, 18), Vector3(-18, 0, 18), Vector3(0, 0, -4.5), Vector3(0, 0, 4.5)],
+		"pois": [Vector3(-12, 0, -8.5), Vector3(-6, 0, -10.5), Vector3(6, 0, -10.5), Vector3(12, 0, -8.5), Vector3(-12, 0, 8.5),
+			Vector3(6, 0, 10.5), Vector3(0, 0, 4), Vector3(-16, 0, -20), Vector3(0, 0, -20)],
 		"spawn": Vector3(-22, 0.1, 18), "spawn_yaw": -PI * 0.25,
 		"kid_bounds": Rect2(-20, -19, 40, 38),
 		"extracts": [

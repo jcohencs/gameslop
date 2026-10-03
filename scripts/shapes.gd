@@ -108,20 +108,6 @@ static func label(parent: Node, text: String, pos: Vector3, color := Color.WHITE
 	return l
 
 
-## Body + head humanoid made of a capsule and a sphere. Returns the body mesh.
-static func person(parent: Node, height: float, shirt: Color, skin: Color) -> MeshInstance3D:
-	var body_h := height * 0.72
-	var radius := height * 0.17
-	var body := capsule(parent, radius, body_h, Vector3(0, body_h * 0.5, 0), shirt)
-	var head_r := height * 0.14
-	sphere(parent, head_r, Vector3(0, body_h + head_r * 0.8, 0), skin)
-	# Eyes so you can tell which way they face.
-	var eye_y := body_h + head_r * 0.95
-	sphere(parent, head_r * 0.18, Vector3(-head_r * 0.4, eye_y, -head_r * 0.85), Color.BLACK)
-	sphere(parent, head_r * 0.18, Vector3(head_r * 0.4, eye_y, -head_r * 0.85), Color.BLACK)
-	return body
-
-
 static func capsule_collider(parent: Node, height: float, radius: float) -> CollisionShape3D:
 	var cs := CollisionShape3D.new()
 	var shape := CapsuleShape3D.new()
