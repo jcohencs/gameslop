@@ -16,7 +16,8 @@ var state := State.WANDER
 var target := Vector3.ZERO
 var wait := 0.0
 var state_timer := 0.0
-var bounds := 26.0
+var bounds := Rect2(-24, -24, 48, 48)  # x/z wander area, set by the level
+var rarity_bonus := 0.0
 var label: Label3D
 var shirt_mat: StandardMaterial3D
 var player: Node3D
@@ -27,14 +28,14 @@ func _ready() -> void:
 	collision_layer = 4
 	collision_mask = 1 | 2 | 4
 	kid_name = KID_NAMES[randi() % KID_NAMES.size()]
-	card = GameState.roll_card()
+	card = GameState.roll_card(rarity_bonus)
 	var shirt := Color.from_hsv(randf(), 0.7, 0.95)
 	var body := Shapes.person(self, 1.15, shirt, Color.from_hsv(0.07, randf_range(0.2, 0.6), randf_range(0.45, 0.95)))
 	shirt_mat = body.material_override
 	# A little backpack.
 	Shapes.box(self, Vector3(0.3, 0.32, 0.14), Vector3(0, 0.6, 0.2), Color.from_hsv(randf(), 0.5, 0.6))
 	Shapes.capsule_collider(self, 1.15, 0.22)
-	label = Shapes.label(self, "", Vector3(0, 1.55, 0), Color.WHITE, 40)
+	label = Shapes.label(self, "", Vector3(0, 1.55, 0), Color.WHITE, 30)
 	_refresh_label()
 	_pick_target()
 
@@ -57,7 +58,7 @@ func _refresh_label() -> void:
 
 
 func _pick_target() -> void:
-	target = Vector3(randf_range(-bounds, bounds), 0, randf_range(-bounds, bounds))
+	target = Vector3(randf_range(bounds.position.x, bounds.end.x), 0, randf_range(bounds.position.y, bounds.end.y))
 	wait = randf_range(0.5, 3.0)
 
 
@@ -116,7 +117,7 @@ func _physics_process(delta: float) -> void:
 		look_at(Vector3(look.x, global_position.y, look.z), Vector3.UP)
 	velocity.x = flat.x * speed
 	velocity.z = flat.z * speed
-	# Clamp to the playground.
-	global_position.x = clampf(global_position.x, -28.0, 28.0)
-	global_position.z = clampf(global_position.z, -28.0, 28.0)
+	# Stay inside the level.
+	global_position.x = clampf(global_position.x, bounds.position.x - 2.0, bounds.end.x + 2.0)
+	global_position.z = clampf(global_position.z, bounds.position.y - 2.0, bounds.end.y + 2.0)
 	move_and_slide()
