@@ -96,6 +96,18 @@ Rarer cards are harder to scam. Kids who **witness** a scam get wary (-20% odds)
 
 **Upgrades:** Silver Tongue, Light-Up Sneakers, Fat Binder, Puffy Vest, Protein Shake, Gym Membership (stamina for heavies), Shady Hoodie (heat + stealth), Fake Grading Slabs.
 
+## Spec-driven development (Spec Kit)
+
+This repo has [GitHub Spec Kit](https://github.com/github/spec-kit) installed for Claude Code. Start a Claude Code session in this folder and use:
+
+1. `/speckit-constitution` to set the project's principles (written to `.specify/memory/constitution.md`).
+2. `/speckit-specify <feature description>` to write a spec for a new feature.
+3. `/speckit-plan` to turn the spec into a technical plan.
+4. `/speckit-tasks` to break the plan into tasks.
+5. `/speckit-implement` to build it.
+
+There are also some optional skills: `/speckit-clarify`, `/speckit-analyze`, `/speckit-checklist`, `/speckit-converge` and `/speckit-taskstoissues`. Templates and helper scripts live in `.specify/`, and the skills live in `.claude/skills/`.
+
 ## Project layout
 
 - `scripts/game_state.gd`: autoload with meta progress, raid state, all tuning tables, save/load, settings and the input map.
