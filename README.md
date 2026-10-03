@@ -20,16 +20,28 @@ Everything (art, animation, sound) is generated in code, so there are no asset f
 
 | Input | Action |
 | --- | --- |
-| WASD | Move (Shift sprints, costs stamina) |
-| Space | Jump |
+| WASD | Move |
+| Space | Jump. **Hold it to bunny hop**: you jump again the instant you land, with no ground friction |
+| Ctrl / C | Crouch. **At speed you slide** with a speed boost; jump out of a slide to keep the momentum |
+| Shift | Quiet walk (parents hear you from less far away) |
 | Mouse | Look (sensitivity, FOV and invert Y are in Settings) |
 | Left click | Attack (click repeatedly for a 3-hit combo; the 3rd hit is a finisher) |
-| Hold left click | Charge a heavy attack (uppercut / lunge), release to unleash |
-| Right click (hold) | Block: takes 75% less damage but drains stamina. Runs dry = guard break |
+| Hold left click | Charge a heavy attack (uppercut / lunge), release when the ring fills. Costs stamina |
+| Right click (hold) | Block: takes 75% less damage |
 | Right click (just before a hit) | **Parry**: no damage, and the attacker is stunned |
-| 1-6 / mouse wheel | Switch weapon |
+| Q | Throw **Pocket Sand** with any weapon equipped (if you own it) |
+| 1-7 / mouse wheel | Switch weapon |
 | E | Trade with the kid you're looking at |
 | Esc | Pause / close menu |
+
+## Movement (STRAFTAT / Quake style)
+
+- Ground movement has friction and acceleration, like Quake and Source.
+- **Air strafing:** in the air, hold A or D and turn the mouse the same way to gain speed.
+- **Bunny hopping:** hold Space. Every landing jumps again instantly, so you keep (and keep building) speed.
+- **Sliding:** crouch while moving fast to slide with a boost. Landing with crouch held turns straight into a slide, and jumping out of a slide keeps the speed.
+- Speed raises your FOV, and a speedometer appears under the crosshair. Hitting someone at high speed adds bonus damage and knockback.
+- Stamina is only used by **charged heavy attacks**. Movement is free.
 
 ## The loop
 
@@ -80,8 +92,9 @@ Rarer cards are harder to scam. Kids who **witness** a scam get wary (-20% odds)
 | Boxing Gloves | fist | Huge knockback and stun |
 | Mall Kiosk Katana | sword | Big damage, slashing combo, lunge heavy |
 | Power Gauntlet (1989) | fist | Hits everything in a wide arc |
+| Pocket Sand | thrown | "POCKET SAND!" Blinds every parent in a cone for 3.5s. They rub their eyes, stumble and lose track of you. Uses sand packets (3 for $8), which you lose if you don't extract |
 
-**Upgrades:** Silver Tongue, Light-Up Sneakers, Fat Binder, Puffy Vest, Protein Shake, Gym Membership (stamina), Shady Hoodie (heat + stealth), Fake Grading Slabs.
+**Upgrades:** Silver Tongue, Light-Up Sneakers, Fat Binder, Puffy Vest, Protein Shake, Gym Membership (stamina for heavies), Shady Hoodie (heat + stealth), Fake Grading Slabs.
 
 ## Project layout
 
@@ -90,7 +103,7 @@ Rarer cards are harder to scam. Kids who **witness** a scam get wary (-20% odds)
 - `scripts/main.gd`: hideout and raid lifecycle, spawning, scams and witnesses, AI coordination (attack tokens, radio), extraction.
 - `scripts/levels.gd`: level geometry plus a navmesh baked at runtime; spawn, extract, patrol and hangout points.
 - `scripts/rig.gd`: jointed humanoid with procedural walk/run cycles and blended action poses.
-- `scripts/player.gd`: first-person controller with combos, heavies, block/parry, stamina and camera feel.
+- `scripts/player.gd`: first-person controller with Quake-style movement (air strafe, bhop, slide), combos, heavies, block/parry, pocket sand and camera feel.
 - `scripts/viewmodel.gd`: first-person arms, fists and swords, attack animations, sway and sword trails.
 - `scripts/parent.gd`, `scripts/kid.gd`: AI state machines.
 - `scripts/hud.gd`: in-raid UI. `scripts/hub.gd`: title screen and hideout.

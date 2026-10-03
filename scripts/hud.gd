@@ -42,6 +42,7 @@ var hp_bar: ProgressBar
 var hp_lag: ProgressBar
 var hp_text: Label
 var stamina_bar: ProgressBar
+var speed_label: Label
 var binder_label: Label
 var binder_strip: HBoxContainer
 var weapon_label: Label
@@ -178,6 +179,7 @@ func _build_bottom() -> void:
 	hp_text = UI.label("100", 18, UI.TEXT, true)
 	hp_row.add_child(hp_text)
 	stamina_bar = UI.bar(Color(0.95, 0.85, 0.3), Vector2(260, 8))
+	stamina_bar.tooltip_text = "Stamina: spent on charged heavy attacks"
 	v.add_child(stamina_bar)
 	binder_label = UI.label("", 15, UI.TEXT)
 	v.add_child(binder_label)
@@ -200,7 +202,7 @@ func _build_bottom() -> void:
 	slots_label = UI.label("", 14, UI.TEXT_DIM)
 	slots_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	wv.add_child(slots_label)
-	wv.add_child(UI.label("LMB attack (hold: heavy)  RMB block/parry  Wheel swap", 13, UI.TEXT_DIM))
+	wv.add_child(UI.label("LMB attack (hold: heavy)  RMB block/parry  Q sand  Wheel swap", 13, UI.TEXT_DIM))
 
 	# Interaction prompt, lower center.
 	prompt_box = UI.hbox(8)
@@ -212,6 +214,12 @@ func _build_bottom() -> void:
 	prompt_label = UI.label("", 20, UI.TEXT, true)
 	prompt_box.add_child(prompt_label)
 	prompt_box.visible = false
+
+	speed_label = UI.label("", 16, UI.TEXT, true)
+	speed_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_anchored(speed_label, Control.PRESET_CENTER, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_BOTH)
+	speed_label.offset_top = 70
+	speed_label.offset_bottom = 70
 
 	popup_holder = Control.new()
 	_anchored(popup_holder, Control.PRESET_CENTER_RIGHT, Control.GROW_DIRECTION_BEGIN, Control.GROW_DIRECTION_BOTH)
@@ -254,7 +262,7 @@ func _build_pause() -> void:
 	v.add_child(UI.button("Resume", func(): main.resume(), 20, 48))
 	v.add_child(UI.button("Settings", _open_settings, 20, 48))
 	v.add_child(UI.button("Abandon raid (lose binder)", func(): main.abandon_raid(), 20, 48))
-	var help := UI.wrap(UI.label("WASD move · Shift sprint · Space jump · E trade\nLMB attack (3-hit combo) · hold LMB: charged heavy\nRMB block · tap RMB right before a hit to PARRY\n1-6 / mouse wheel: switch weapon", 14, UI.TEXT_DIM))
+	var help := UI.wrap(UI.label("WASD move · hold Space to bunny hop · Ctrl/C crouch & slide · Shift quiet walk\nAir strafe: hold A/D and turn the mouse the same way mid-air\nLMB attack (3-hit combo) · hold LMB: charged heavy (uses stamina)\nRMB block · tap RMB right before a hit to PARRY · Q pocket sand\n1-7 / mouse wheel: switch weapon · E trade", 14, UI.TEXT_DIM))
 	v.add_child(help)
 	settings = SettingsPanel.new()
 	_anchored(settings, Control.PRESET_CENTER, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_BOTH)
@@ -295,7 +303,11 @@ func refresh(delta: float, player: Node3D) -> void:
 	hp_text.text = "%d" % ceili(gs.health)
 	stamina_bar.max_value = gs.max_stamina()
 	stamina_bar.value = gs.stamina
-	stamina_bar.modulate = Color(1, 0.4, 0.3) if player and player.guard_broken > 0.0 else Color.WHITE
+	if player:
+		# Dim red when there isn't enough stamina for a heavy.
+		stamina_bar.modulate = Color.WHITE if gs.stamina >= player.HEAVY_STAMINA else Color(1, 0.45, 0.3)
+		speed_label.text = "%d m/s%s" % [roundi(player.hspeed()), "  SLIDE" if player.sliding else ""]
+		speed_label.modulate.a = clampf((player.hspeed() - 6.0) / 4.0, 0.0, 1.0)
 	var low := 1.0 - gs.health / mh
 	(vignette.material as ShaderMaterial).set_shader_parameter("strength", clampf((low - 0.5) * 1.6, 0.0, 0.8) * (0.8 + 0.2 * sin(Time.get_ticks_msec() * 0.006)))
 
@@ -312,6 +324,10 @@ func refresh(delta: float, player: Node3D) -> void:
 
 	var w := gs.weapon()
 	weapon_label.text = w["name"]
+	if w["kind"] == "sand":
+		weapon_label.text += "  (%d packets)" % gs.sand
+	elif gs.weapons_owned.get("sand", false):
+		weapon_label.text += "\nPocket sand: %d  [Q]" % gs.sand
 	if player:
 		var chain: Array = w["combo"]
 		var step: int = player.combo % chain.size() if player.combo_timer > 0.0 else 0

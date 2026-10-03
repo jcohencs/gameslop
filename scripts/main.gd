@@ -107,6 +107,11 @@ func hub_buy_junk() -> void:
 		Sfx.play("cash", 0.1, -4.0)
 
 
+func hub_buy_sand() -> void:
+	if GameState.buy_sand():
+		Sfx.play("cash", 0.1, -4.0)
+
+
 func hub_buy_sticker() -> void:
 	if GameState.buy_sticker():
 		Sfx.play("cash", 0.1, -4.0)
@@ -230,8 +235,8 @@ func _end_raid(success: bool, reason: String) -> void:
 	else:
 		var r := GameState.lose_raid()
 		Sfx.play("fail", 0.0)
-		hub.set_report("%s  Lost %d cards ($%d), %d junk cards and %d stickers. Cash and stash are safe." % [
-			reason, r["cards"], r["value"], r["junk"], r["stickers"]], UI.BAD)
+		hub.set_report("%s  Lost %d cards ($%d), %d junk cards, %d stickers and %d sand packets. Cash and stash are safe." % [
+			reason, r["cards"], r["value"], r["junk"], r["stickers"], r["sand"]], UI.BAD)
 	GameState.heat = 0.0
 	GameState.health = GameState.max_health()
 	player = null
@@ -519,6 +524,38 @@ func spawn_hit_spark(at: Vector3) -> void:
 	var tw := s.create_tween()
 	tw.tween_property(s, "scale", Vector3.ONE * 2.5, 0.1)
 	tw.tween_callback(s.queue_free)
+
+
+func spawn_sand_cloud(at: Vector3, dir: Vector3) -> void:
+	if level == null:
+		return
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.emitting = false
+	p.amount = 90
+	p.lifetime = 0.9
+	p.explosiveness = 0.95
+	p.direction = dir
+	p.spread = 22.0
+	p.initial_velocity_min = 7.0
+	p.initial_velocity_max = 13.0
+	p.gravity = Vector3(0, -7, 0)
+	p.damping_min = 4.0
+	p.damping_max = 7.0
+	p.scale_amount_min = 0.5
+	p.scale_amount_max = 1.4
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.025
+	mesh.height = 0.05
+	mesh.radial_segments = 4
+	mesh.rings = 2
+	p.mesh = mesh
+	var m := Shapes.mat(Color(0.92, 0.8, 0.52))
+	p.material_override = m
+	level.add_child(p)
+	p.global_position = at
+	p.emitting = true
+	get_tree().create_timer(1.6).timeout.connect(p.queue_free)
 
 
 func spawn_damage_number(at: Vector3, amount: float, big: bool) -> void:

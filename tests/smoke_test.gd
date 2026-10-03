@@ -193,14 +193,80 @@ func _ready() -> void:
 	h0 = gs.health
 	r = main.player.take_damage(20.0, Vector3.FORWARD, target)
 	check(r == "parry" and gs.health == h0 and target.stun_timer > 1.0, "parry negates damage + stuns attacker")
-	main.player.hurt_cd = 0.0
-	main.player.block_time = -10.0
-	gs.stamina = 0.0
-	r = main.player.take_damage(20.0, Vector3.FORWARD, target)
-	check(main.player.guard_broken > 0.0, "guard breaks with no stamina")
 	main.player.blocking = false
+
 	target.take_damage(99999.0)
 	check(target.state == target.State.KO, "parent knocked out")
+
+	# Charge attack through the real input path: hold LMB, release when full.
+	target = main.spawn_parent("coach")
+	await frames(1)
+	target.begin_chase(main.player.global_position)
+	gs.stamina = gs.max_stamina()
+	await wait(0.6)
+	hp0 = target.hp
+	var pl = main.player
+	pl.attack_cd = 0.0
+	Input.action_press("attack")
+	for i in 50:
+		target.global_position = main.player.global_position + fwd * 1.5
+		await frames(1)
+	check(pl.charge >= pl.CHARGE_FULL, "holding attack charges a heavy")
+	Input.action_release("attack")
+	await frames(1)
+	check(gs.stamina < gs.max_stamina() - 20.0, "heavy spends stamina")
+	await wait(0.35)
+	check(target.hp < hp0, "released charge lands a heavy hit")
+	# A quick tap is a light attack and costs no stamina.
+	await wait(0.6)
+	gs.stamina = gs.max_stamina()
+	pl.attack_cd = 0.0
+	Input.action_press("attack")
+	await frames(2)
+	Input.action_release("attack")
+	await frames(2)
+	check(pl.attack_cd > 0.0 and gs.stamina == gs.max_stamina(), "tap = free light attack")
+
+	# Pocket sand blinds parents in front.
+	await wait(0.6)
+	gs.weapons_owned["sand"] = true
+	gs.sand = 2
+	pl.attack_cd = 0.0
+	target.stun_timer = 0.0
+	target.global_position = main.player.global_position + fwd * 3.0
+	target.begin_chase(main.player.global_position)
+	await frames(1)
+	pl.throw_sand()
+	check(gs.sand == 1 and target.state == target.State.BLINDED, "pocket sand blinds the parent")
+	check(target.awareness() < 2, "blinded parent can't see you")
+	target.take_damage(99999.0)
+
+	# Movement: slide boost, bunny hop keeps speed, air strafing gains speed.
+	pl.global_position = Vector3(0, 0.1, 12)
+	pl.rotation.y = 0.0
+	pl.velocity = Vector3.ZERO
+	await frames(10)
+	pl.velocity = Vector3(0, 0, -8.0)
+	await frames(1)
+	Input.action_press("crouch")
+	await frames(2)
+	check(pl.sliding and pl.hspeed() > 9.0, "crouch at speed = slide with boost")
+	Input.action_release("crouch")
+	await frames(20)
+	pl.velocity = Vector3(0, 0, -9.0)
+	Input.action_press("jump")
+	for i in 70:
+		pl.velocity.x = 0.0
+		await frames(1)
+	var hop_speed: float = pl.hspeed()
+	Input.action_release("jump")
+	check(hop_speed > 7.5, "bunny hopping keeps your speed (%.1f m/s)" % hop_speed)
+	pl.velocity = Vector3(8.0, 0, 0)
+	var before: float = pl.hspeed()
+	for i in 30:
+		pl._air_accelerate(Vector3(0, 0, -1).rotated(Vector3.UP, i * 0.02), pl.RUN_SPEED, 1.0 / 60.0)
+	check(pl.hspeed() > before, "air strafing gains speed")
+	pl.velocity = Vector3.ZERO
 
 	# Pause menu.
 	main._set_menu_mode(true)

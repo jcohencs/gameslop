@@ -3,7 +3,7 @@ extends CharacterBody3D
 ## navmesh pathing, attack tokens (so they surround you instead of dog-piling),
 ## telegraphed swings, parry/stagger reactions and procedural animation.
 
-enum State { PATROL, INVESTIGATE, SEARCH, CHASE, ENGAGE, WINDUP, RECOVER, STAGGER, FLEE, KO }
+enum State { PATROL, INVESTIGATE, SEARCH, CHASE, ENGAGE, WINDUP, RECOVER, STAGGER, FLEE, KO, BLINDED }
 
 const GRAVITY := 18.0
 const ATTACK_RANGE := 1.75
@@ -75,6 +75,8 @@ var circle_side := 1.0
 var has_token := false
 var knockback := Vector3.ZERO
 var label_hold := 0.0
+var blind_timer := 0.0
+var stumble := Vector3.ZERO
 
 
 func setup(type_id: String) -> void:
@@ -94,7 +96,7 @@ func is_fighting() -> bool:
 func awareness() -> int:
 	if state in [State.CHASE, State.ENGAGE, State.WINDUP, State.RECOVER] and sees_player:
 		return 2
-	if state in [State.INVESTIGATE, State.SEARCH, State.CHASE, State.ENGAGE]:
+	if state in [State.INVESTIGATE, State.SEARCH, State.CHASE, State.ENGAGE, State.BLINDED]:
 		return 1
 	return 0
 
@@ -163,6 +165,9 @@ func _refresh_label() -> void:
 		State.STAGGER:
 			label.text = "@_@\n" + data["name"]
 			label.modulate = Color(1, 0.9, 0.5)
+		State.BLINDED:
+			label.text = "MY EYES!!\n" + data["name"]
+			label.modulate = Color(0.95, 0.85, 0.55)
 		State.FLEE:
 			label.text = "\"I'm calling my LAWYER!\""
 			label.modulate = Color(0.7, 0.8, 1)
@@ -195,8 +200,10 @@ func _set_state(s: State) -> void:
 			rig.play("windup", WINDUP_TIME + 0.05, 0.12)
 		State.STAGGER:
 			rig.play("dazed", stun_timer, 0.08)
+		State.BLINDED:
+			rig.play("cry", -1.0, 0.08)  # rubbing their eyes
 		State.INVESTIGATE, State.SEARCH, State.PATROL, State.CHASE:
-			if rig.current_action() == "dazed":
+			if rig.current_action() in ["dazed", "cry"]:
 				rig.clear_action()
 	_refresh_label()
 
@@ -300,6 +307,10 @@ func take_damage(amount: float, dir := Vector3.ZERO, knock := 4.0, stun := 0.25)
 	if hp < data["hp"] * 0.2 and randf() < data["flee"]:
 		_set_state(State.FLEE)
 		return
+	if state == State.BLINDED:
+		# Still can't see: flinch, keep rubbing their eyes.
+		rig.play("flinch", 0.25, 0.05)
+		return
 	stun_timer = maxf(stun_timer, stun)
 	if stun >= 0.5:
 		_set_state(State.STAGGER)
@@ -310,6 +321,18 @@ func take_damage(amount: float, dir := Vector3.ZERO, knock := 4.0, stun := 0.25)
 			_set_state(State.RECOVER)
 		elif state in [State.PATROL, State.INVESTIGATE, State.SEARCH]:
 			_spot_player()
+
+
+## Pocket sand to the face: can't see, stumbles around, loses track of you.
+func blind(duration: float, from_dir := Vector3.ZERO) -> void:
+	if state == State.KO:
+		return
+	blind_timer = maxf(blind_timer, duration)
+	knockback += Vector3(from_dir.x, 0, from_dir.z).normalized() * 2.0
+	stumble = Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized()
+	sees_player = false
+	_set_state(State.BLINDED)
+	_say("MY EYES!", 1.2)
 
 
 func parried() -> void:
@@ -371,8 +394,8 @@ func _physics_process(delta: float) -> void:
 	think_timer -= delta
 	if think_timer <= 0.0:
 		think_timer = 0.15
-		sees_player = _can_see_player()
-		if sees_player or (_can_hear_player() and state != State.FLEE):
+		sees_player = _can_see_player() and state != State.BLINDED
+		if sees_player or (_can_hear_player() and not (state in [State.FLEE, State.BLINDED])):
 			if state in [State.PATROL, State.INVESTIGATE, State.SEARCH]:
 				_spot_player()
 			last_seen = player.global_position
@@ -460,6 +483,17 @@ func _physics_process(delta: float) -> void:
 			if stun_timer <= 0.0:
 				_set_state(State.CHASE)
 				memory_timer = MEMORY
+		State.BLINDED:
+			blind_timer -= delta
+			if fmod(state_t, 0.8) < delta:
+				stumble = stumble.rotated(Vector3.UP, randf_range(-1.5, 1.5))
+			desired = stumble * speed * 0.3
+			if rig.current_action() == "":
+				rig.play("cry", -1.0, 0.1)
+			if blind_timer <= 0.0:
+				# They lost you: search around where you were standing before.
+				move_target = last_seen
+				_set_state(State.SEARCH)
 		State.FLEE:
 			if player:
 				desired = -to_player.normalized() * speed * 1.1

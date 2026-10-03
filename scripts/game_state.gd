@@ -46,7 +46,7 @@ const UPGRADES := {
 	"binder": {"name": "Fat Binder", "desc": "+5 card slots per raid", "base": 35, "max": 4},
 	"armor": {"name": "Puffy Vest", "desc": "+30 max health", "base": 50, "max": 5},
 	"protein": {"name": "Protein Shake", "desc": "+15% melee damage", "base": 45, "max": 5},
-	"cardio": {"name": "Gym Membership", "desc": "+25 max stamina", "base": 40, "max": 4},
+	"cardio": {"name": "Gym Membership", "desc": "+25 stamina (more heavies)", "base": 40, "max": 4},
 	"hoodie": {"name": "Shady Hoodie", "desc": "-20% heat, harder to spot", "base": 60, "max": 3},
 	"grading": {"name": "Fake Grading Slabs", "desc": "+25% sell price", "base": 80, "max": 4},
 }
@@ -55,29 +55,35 @@ const UPGRADES := {
 ## combo = damage multipliers for the light-attack chain; heavy = charged attack multiplier.
 const WEAPONS := {
 	"knuckles": {"name": "Bare Knuckles", "kind": "fist", "cost": 0, "damage": 16.0, "rate": 0.3, "range": 2.2,
-		"arc": 40.0, "knock": 4.0, "stun": 0.25, "stamina": 6.0, "combo": [1.0, 1.0, 1.5], "heavy": 2.4,
+		"arc": 40.0, "knock": 4.0, "stun": 0.25, "combo": [1.0, 1.0, 1.5], "heavy": 2.4,
 		"color": Color(0.85, 0.62, 0.48), "size": 0.05},
 	"brass": {"name": "Brass Knuckles", "kind": "fist", "cost": 120, "damage": 26.0, "rate": 0.32, "range": 2.2,
-		"arc": 40.0, "knock": 5.0, "stun": 0.3, "stamina": 7.0, "combo": [1.0, 1.0, 1.5], "heavy": 2.4,
+		"arc": 40.0, "knock": 5.0, "stun": 0.3, "combo": [1.0, 1.0, 1.5], "heavy": 2.4,
 		"color": Color(0.95, 0.75, 0.2), "size": 0.052},
 	"foam": {"name": "Foam LARP Sword", "kind": "sword", "cost": 90, "damage": 20.0, "rate": 0.42, "range": 3.0,
-		"arc": 70.0, "knock": 7.0, "stun": 0.35, "stamina": 9.0, "combo": [1.0, 1.1, 1.6], "heavy": 2.2,
+		"arc": 70.0, "knock": 7.0, "stun": 0.35, "combo": [1.0, 1.1, 1.6], "heavy": 2.2,
 		"color": Color(0.3, 0.6, 1.0), "blade": 0.9},
 	"gloves": {"name": "Boxing Gloves", "kind": "fist", "cost": 220, "damage": 22.0, "rate": 0.42, "range": 2.4,
-		"arc": 50.0, "knock": 15.0, "stun": 0.7, "stamina": 8.0, "combo": [1.0, 1.0, 1.4], "heavy": 2.0,
+		"arc": 50.0, "knock": 15.0, "stun": 0.7, "combo": [1.0, 1.0, 1.4], "heavy": 2.0,
 		"color": Color(0.9, 0.12, 0.12), "size": 0.075},
 	"katana": {"name": "Mall Kiosk Katana", "kind": "sword", "cost": 400, "damage": 42.0, "rate": 0.48, "range": 3.2,
-		"arc": 75.0, "knock": 8.0, "stun": 0.4, "stamina": 11.0, "combo": [1.0, 1.15, 1.7], "heavy": 2.3,
+		"arc": 75.0, "knock": 8.0, "stun": 0.4, "combo": [1.0, 1.15, 1.7], "heavy": 2.3,
 		"color": Color(0.85, 0.88, 0.95), "blade": 1.05},
 	"gauntlet": {"name": "Power Gauntlet (1989)", "kind": "fist", "cost": 650, "damage": 50.0, "rate": 0.5, "range": 2.8,
-		"arc": 85.0, "knock": 11.0, "stun": 0.5, "stamina": 10.0, "combo": [1.0, 1.0, 1.5], "heavy": 2.2,
+		"arc": 85.0, "knock": 11.0, "stun": 0.5, "combo": [1.0, 1.0, 1.5], "heavy": 2.2,
 		"color": Color(0.35, 0.4, 0.5), "size": 0.07},
+	# Thrown, not swung: blinds every parent in a cone. Uses sand packets.
+	"sand": {"name": "Pocket Sand", "kind": "sand", "cost": 60, "damage": 0.0, "rate": 0.8, "range": 7.0,
+		"arc": 45.0, "knock": 2.0, "stun": 0.0, "blind": 3.5, "combo": [1.0], "heavy": 1.0,
+		"color": Color(0.9, 0.78, 0.5), "size": 0.05},
 }
-const WEAPON_ORDER := ["knuckles", "brass", "foam", "gloves", "katana", "gauntlet"]
+const WEAPON_ORDER := ["knuckles", "brass", "foam", "gloves", "katana", "gauntlet", "sand"]
 
 const JUNK_PACK_COST := 5
 const JUNK_PACK_SIZE := 10
 const STICKER_COST := 12
+const SAND_COST := 8
+const SAND_PACK := 3
 
 # Settings
 var mouse_sensitivity := 0.3   # 0.05 .. 1.0
@@ -90,6 +96,7 @@ var cash: int
 var stash: Array          # extracted, unsold cards
 var junk: int             # carried into raids; lost if you don't extract
 var stickers: int
+var sand: int             # pocket sand packets, carried like supplies
 var upgrades: Dictionary
 var weapons_owned: Dictionary
 var weapon_id: String
@@ -119,6 +126,7 @@ func reset() -> void:
 	stash = []
 	junk = 10
 	stickers = 0
+	sand = 0
 	upgrades = {}
 	for k in UPGRADES:
 		upgrades[k] = 0
@@ -278,10 +286,11 @@ func extract() -> Dictionary:
 
 ## Knocked out, timed out or abandoned: binder and carried supplies are gone.
 func lose_raid() -> Dictionary:
-	var result := {"cards": binder.size(), "value": cards_value(binder), "junk": junk, "stickers": stickers}
+	var result := {"cards": binder.size(), "value": cards_value(binder), "junk": junk, "stickers": stickers, "sand": sand}
 	binder = []
 	junk = 0
 	stickers = 0
+	sand = 0
 	location_id = ""
 	save_game()
 	changed.emit()
@@ -347,6 +356,14 @@ func buy_junk() -> bool:
 	changed.emit()
 	return true
 
+func buy_sand() -> bool:
+	if not try_spend(SAND_COST):
+		return false
+	sand += SAND_PACK
+	save_game()
+	changed.emit()
+	return true
+
 func buy_sticker() -> bool:
 	if not try_spend(STICKER_COST):
 		return false
@@ -378,7 +395,7 @@ func has_save() -> bool:
 
 func save_game() -> void:
 	var cfg := ConfigFile.new()
-	for key in ["cash", "stash", "junk", "stickers", "upgrades", "weapons_owned", "weapon_id",
+	for key in ["cash", "stash", "junk", "stickers", "sand", "upgrades", "weapons_owned", "weapon_id",
 			"raids", "extracts", "scams", "knockouts", "won"]:
 		cfg.set_value("meta", key, get(key))
 	cfg.save(SAVE_PATH)
@@ -388,7 +405,7 @@ func load_game() -> bool:
 	if cfg.load(SAVE_PATH) != OK:
 		return false
 	reset()
-	for key in ["cash", "stash", "junk", "stickers", "raids", "extracts", "scams", "knockouts", "won", "weapon_id"]:
+	for key in ["cash", "stash", "junk", "stickers", "sand", "raids", "extracts", "scams", "knockouts", "won", "weapon_id"]:
 		if cfg.has_section_key("meta", key):
 			set(key, cfg.get_value("meta", key))
 	# Merge dictionaries so newly added upgrades/weapons get defaults.
@@ -443,7 +460,9 @@ func _setup_input() -> void:
 		"move_left": [KEY_A, KEY_LEFT],
 		"move_right": [KEY_D, KEY_RIGHT],
 		"jump": [KEY_SPACE],
-		"sprint": [KEY_SHIFT],
+		"walk": [KEY_SHIFT],
+		"crouch": [KEY_CTRL, KEY_C],
+		"throw_sand": [KEY_Q],
 		"interact": [KEY_E],
 		"pause": [KEY_ESCAPE],
 	}

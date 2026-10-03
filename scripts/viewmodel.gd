@@ -28,6 +28,8 @@ var _bob := Vector3.ZERO
 var _dip := 0.0
 var _blocking := false
 var _charging := false
+var _sliding := false
+var _charge_t := 0.0
 var _busy_l := 0.0
 var _busy_r := 0.0
 var _trail_time := 0.0
@@ -106,6 +108,29 @@ func set_weapon(id: String) -> void:
 			fist_mat.roughness = 0.25
 		for h in [hand_l, hand_r]:
 			_make_fist(h, id, w)
+	elif kind == "sand":
+		_make_fist(hand_l, "knuckles", GameState.WEAPONS["knuckles"])
+		_make_fist(hand_r, "knuckles", GameState.WEAPONS["knuckles"])
+		# A little drawstring pouch of sand.
+		var pouch := MeshInstance3D.new()
+		var pm := SphereMesh.new()
+		pm.radius = 0.04
+		pm.height = 0.07
+		pouch.mesh = pm
+		pouch.material_override = Shapes.mat(Color(0.55, 0.4, 0.25))
+		pouch.position = Vector3(0, 0.03, -0.02)
+		_no_shadow(pouch)
+		hand_r.add_child(pouch)
+		var tie := MeshInstance3D.new()
+		var tm := CylinderMesh.new()
+		tm.top_radius = 0.008
+		tm.bottom_radius = 0.015
+		tm.height = 0.03
+		tie.mesh = tm
+		tie.material_override = Shapes.mat(Color(0.8, 0.2, 0.2))
+		tie.position = Vector3(0, 0.075, -0.02)
+		_no_shadow(tie)
+		hand_r.add_child(tie)
 	else:
 		_make_fist(hand_l, "knuckles", GameState.WEAPONS["knuckles"])
 		_make_fist(hand_r, "knuckles", GameState.WEAPONS["knuckles"])
@@ -302,8 +327,20 @@ func set_charging(on: bool) -> void:
 	if on == _charging:
 		return
 	_charging = on
-	if _busy_r <= 0.0:
-		_return_to_idle(0.18)
+	# Always snap into (or out of) the wind-up pose, even mid-animation.
+	_return_to_idle(0.18 if on else 0.1)
+
+
+func set_sliding(on: bool) -> void:
+	_sliding = on
+
+
+## Fling a handful of sand: right arm whips forward and opens.
+func throw_sand() -> float:
+	_tween_arm(true, [[0.08, Vector3(0.3, -0.15, -0.15), Vector3(-0.6, 0.3, 0.3)],
+		[0.08, Vector3(0.05, -0.05, -0.75), Vector3(0.6, -0.2, -0.3)],
+		[0.25, IDLE_R[0], IDLE_R[1]]])
+	return 0.16
 
 
 func flinch() -> void:
@@ -340,8 +377,18 @@ func tick(delta: float, speed: float, sprinting: bool, on_floor: bool) -> void:
 	_dip = lerpf(_dip, 0.0, minf(delta * 8.0, 1.0))
 	_kick = _kick.lerp(Vector3.ZERO, minf(delta * 12.0, 1.0))
 	var sprint_drop := Vector3(0, -0.05, 0.04) if sprinting and not _blocking else Vector3.ZERO
-	sway.position = _bob + Vector3(-_sway.x * 0.4, _sway.y * 0.4 - _dip, 0) + _kick + sprint_drop
-	sway.rotation = Vector3(-_sway.y * 1.2 + (0.25 if sprinting and not _blocking else 0.0), -_sway.x * 1.2, _sway.x * 0.8)
+	if _sliding:
+		sprint_drop += Vector3(0.03, -0.04, 0.05)
+	# Trembling wind-up while charging a heavy.
+	var tremble := Vector3.ZERO
+	if _charging:
+		_charge_t += delta
+		tremble = Vector3(randf_range(-1, 1), randf_range(-1, 1), 0) * minf(_charge_t, 0.6) * 0.006
+	else:
+		_charge_t = 0.0
+	sway.position = _bob + Vector3(-_sway.x * 0.4, _sway.y * 0.4 - _dip, 0) + _kick + sprint_drop + tremble
+	sway.rotation = Vector3(-_sway.y * 1.2 + (0.25 if sprinting and not _blocking and not _charging else 0.0), -_sway.x * 1.2,
+		_sway.x * 0.8 + (0.18 if _sliding else 0.0))
 
 	# Ghost trail for sword swings.
 	if _trail_time > 0.0 and blade:

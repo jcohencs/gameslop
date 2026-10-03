@@ -275,7 +275,7 @@ func _fill_deploy() -> void:
 	lv.add_child(UI.label("LOADOUT", 18, UI.INFO, true))
 	lv.add_child(UI.label("Weapon: %s     Binder slots: %d     Max HP: %d     Max stamina: %d" % [
 		gs.weapon()["name"], gs.capacity(), gs.max_health(), gs.max_stamina()], 15, UI.TEXT))
-	var sup := UI.label("Junk cards: %d     Holo stickers: %d     (lost if you don't extract)" % [gs.junk, gs.stickers], 15,
+	var sup := UI.label("Junk cards: %d     Holo stickers: %d     Pocket sand: %d     (lost if you don't extract)" % [gs.junk, gs.stickers, gs.sand], 15,
 		UI.BAD if gs.junk == 0 else UI.TEXT)
 	lv.add_child(sup)
 	if gs.junk == 0:
@@ -322,8 +322,9 @@ func _fill_shop() -> void:
 	var sup := UI.hbox(12)
 	shop_tab.add_child(sup)
 	for item in [["Pack of %d junk cards" % gs.JUNK_PACK_SIZE, "Bait for the classic \"super rare\" trade.", gs.JUNK_PACK_COST, gs.junk, main.hub_buy_junk],
-			["Holo sticker", "Makes junk look shiny. Best scam odds, almost no heat.", gs.STICKER_COST, gs.stickers, main.hub_buy_sticker]]:
-		var tv := _tile(300)
+			["Holo sticker", "Makes junk look shiny. Best scam odds, almost no heat.", gs.STICKER_COST, gs.stickers, main.hub_buy_sticker],
+			["%d pocket sand packets" % gs.SAND_PACK, "Ammo for Pocket Sand. One throw per packet.", gs.SAND_COST, gs.sand, main.hub_buy_sand]]:
+		var tv := _tile(280)
 		sup.add_child(tv[0])
 		var v: VBoxContainer = tv[1]
 		v.add_child(UI.label(item[0], 18, UI.TEXT, true))
@@ -350,10 +351,14 @@ func _fill_shop() -> void:
 		head.add_child(n)
 		head.add_child(UI.label(w["kind"].to_upper(), 13, UI.ACCENT if w["kind"] == "sword" else UI.INFO, true))
 		v.add_child(head)
-		_stat(v, "Damage", w["damage"] / 50.0)
-		_stat(v, "Speed", 1.0 - (w["rate"] - 0.25) / 0.35)
-		_stat(v, "Reach", (w["range"] - 1.8) / 1.6)
-		_stat(v, "Knockback", w["knock"] / 15.0)
+		if w["kind"] == "sand":
+			v.add_child(UI.wrap(UI.label("POCKET SAND! Throw a cone of sand (LMB, or Q with any weapon) that blinds every parent " +
+				"in front of you for %.1fs. They stumble around and lose track of you. Uses sand packets (Supplies)." % w["blind"], 14, UI.TEXT_DIM)))
+		else:
+			_stat(v, "Damage", w["damage"] / 50.0)
+			_stat(v, "Speed", 1.0 - (w["rate"] - 0.25) / 0.35)
+			_stat(v, "Reach", (w["range"] - 1.8) / 1.6)
+			_stat(v, "Knockback", w["knock"] / 15.0)
 		var b: Button
 		if gs.weapons_owned[id]:
 			var eq: bool = gs.weapon_id == id
