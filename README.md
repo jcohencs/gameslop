@@ -20,10 +20,10 @@ Everything (art, animation, sound) is generated in code, so there are no asset f
 
 | Input | Action |
 | --- | --- |
-| WASD | Move |
-| Space | Jump. **Hold it to bunny hop**: you jump again the instant you land, with no ground friction |
-| Ctrl / C | Crouch. **At speed you slide** with a speed boost; jump out of a slide to keep the momentum |
-| Shift | Quiet walk (parents hear you from less far away) |
+| WASD | Move (run, about 5 m/s) |
+| Shift | Sprint (about 6.8 m/s). Free, and it **carries through bunny hops** |
+| Space | Jump. **Hold it to bunny hop**: you jump again the instant you land, with no ground friction. Hold Shift + Space to sprint-hop |
+| Ctrl / C | Crouch-walk (quiet: parents hear you from less far away). **At speed you slide** with a small boost (once per second); jump out of a slide to keep the momentum |
 | Mouse | Look (sensitivity, FOV and invert Y are in Settings) |
 | Left click | Attack (click repeatedly for a 3-hit combo; the 3rd hit is a finisher) |
 | Hold left click | Charge a heavy attack (uppercut / lunge), release when the ring fills. Costs stamina |
@@ -36,11 +36,19 @@ Everything (art, animation, sound) is generated in code, so there are no asset f
 
 ## Movement (STRAFTAT / Quake style)
 
+Grounded, readable speeds: run about 5 m/s, sprint about 6.8 m/s, hard cap 12 m/s. All the numbers
+live in `GameState.MOVEMENT`; see `specs/001-movement-retune/` for the spec and design.
+
 - Ground movement has friction and acceleration, like Quake and Source.
-- **Air strafing:** in the air, hold A or D and turn the mouse the same way to gain speed.
-- **Bunny hopping:** hold Space. Every landing jumps again instantly, so you keep (and keep building) speed.
-- **Sliding:** crouch while moving fast to slide with a boost. Landing with crouch held turns straight into a slide, and jumping out of a slide keeps the speed.
-- Speed raises your FOV, and a speedometer appears under the crosshair. Hitting someone at high speed adds bonus damage and knockback.
+- **Sprint + bunny hop:** hold Shift + Space to chain hops at sprint speed.
+- **Air strafing:** in the air, hold A or D and turn the mouse the same way to gain a little speed
+  each hop, up to the cap.
+- **Sliding:** crouch while moving fast for a short slide with a small boost (at most once per
+  second). Landing with crouch held turns straight into a slide, and jumping out of a slide keeps
+  the speed.
+- **Stealth:** crouch-walking is quiet, and sprinting is loud.
+- Speed raises your FOV, and a speedometer appears under the crosshair. Hitting someone at speed
+  adds bonus damage and knockback.
 - Stamina is only used by **charged heavy attacks**. Movement is free.
 
 ## The loop

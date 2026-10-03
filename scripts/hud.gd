@@ -262,7 +262,7 @@ func _build_pause() -> void:
 	v.add_child(UI.button("Resume", func(): main.resume(), 20, 48))
 	v.add_child(UI.button("Settings", _open_settings, 20, 48))
 	v.add_child(UI.button("Abandon raid (lose binder)", func(): main.abandon_raid(), 20, 48))
-	var help := UI.wrap(UI.label("WASD move · hold Space to bunny hop · Ctrl/C crouch & slide · Shift quiet walk\nAir strafe: hold A/D and turn the mouse the same way mid-air\nLMB attack (3-hit combo) · hold LMB: charged heavy (uses stamina)\nRMB block · tap RMB right before a hit to PARRY · Q pocket sand\n1-7 / mouse wheel: switch weapon · E trade", 14, UI.TEXT_DIM))
+	var help := UI.wrap(UI.label("WASD move · Shift sprint · hold Space to bunny hop (works while sprinting)\nCtrl/C crouch (quiet) & slide at speed · air strafe: hold A/D + turn the mouse mid-air\nLMB attack (3-hit combo) · hold LMB: charged heavy (uses stamina)\nRMB block · tap RMB right before a hit to PARRY · Q pocket sand\n1-7 / mouse wheel: switch weapon · E trade", 14, UI.TEXT_DIM))
 	v.add_child(help)
 	settings = SettingsPanel.new()
 	_anchored(settings, Control.PRESET_CENTER, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_BOTH)
@@ -307,7 +307,7 @@ func refresh(delta: float, player: Node3D) -> void:
 		# Dim red when there isn't enough stamina for a heavy.
 		stamina_bar.modulate = Color.WHITE if gs.stamina >= player.HEAVY_STAMINA else Color(1, 0.45, 0.3)
 		speed_label.text = "%d m/s%s" % [roundi(player.hspeed()), "  SLIDE" if player.sliding else ""]
-		speed_label.modulate.a = clampf((player.hspeed() - 6.0) / 4.0, 0.0, 1.0)
+		speed_label.modulate.a = clampf((player.hspeed() - player.run_speed) / 1.5, 0.0, 1.0)
 	var low := 1.0 - gs.health / mh
 	(vignette.material as ShaderMaterial).set_shader_parameter("strength", clampf((low - 0.5) * 1.6, 0.0, 0.8) * (0.8 + 0.2 * sin(Time.get_ticks_msec() * 0.006)))
 

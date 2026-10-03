@@ -79,6 +79,17 @@ const WEAPONS := {
 }
 const WEAPON_ORDER := ["knuckles", "brass", "foam", "gloves", "katana", "gauntlet", "sand"]
 
+## Player movement profile (Quake/STRAFTAT style). Speeds in m/s. See specs/001-movement-retune.
+const MOVEMENT := {
+	"run_speed": 5.0, "sprint_speed": 6.8, "crouch_speed": 2.6,
+	"ground_accel": 10.0, "air_accel": 10.0, "air_cap": 0.6,
+	"friction": 6.0, "stop_speed": 2.0,
+	"slide_start_speed": 4.5, "slide_boost": 2.0, "slide_boost_cd": 1.0,
+	"slide_friction": 1.4, "slide_min_speed": 2.5,
+	"max_speed": 12.0, "jump_velocity": 6.2,
+	"noise_crouch": 0.35, "noise_run": 0.8, "noise_sprint": 1.0,
+}
+
 const JUNK_PACK_COST := 5
 const JUNK_PACK_SIZE := 10
 const STICKER_COST := 12
@@ -460,7 +471,7 @@ func _setup_input() -> void:
 		"move_left": [KEY_A, KEY_LEFT],
 		"move_right": [KEY_D, KEY_RIGHT],
 		"jump": [KEY_SPACE],
-		"walk": [KEY_SHIFT],
+		"sprint": [KEY_SHIFT],
 		"crouch": [KEY_CTRL, KEY_C],
 		"throw_sand": [KEY_Q],
 		"interact": [KEY_E],

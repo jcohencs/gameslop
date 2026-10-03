@@ -5,23 +5,9 @@ extends CharacterBody3D
 
 const ViewmodelScript := preload("res://scripts/viewmodel.gd")
 
-# Movement (m/s). Air strafing works like Source: wish speed is capped in the air,
-# so turning the mouse while holding a strafe key keeps adding speed.
-const RUN_SPEED := 7.5
-const WALK_SPEED := 3.6          # Shift: quiet walk
-const CROUCH_SPEED := 3.2
-const GROUND_ACCEL := 12.0
-const AIR_ACCEL := 14.0
-const AIR_CAP := 1.0
-const FRICTION := 7.0
-const STOP_SPEED := 2.5
-const SLIDE_FRICTION := 0.9
-const SLIDE_START_SPEED := 5.0
-const SLIDE_BOOST := 4.5
-const SLIDE_BOOST_CD := 0.8
-const SLIDE_MIN_SPEED := 3.0
-const MAX_SPEED := 24.0
-const JUMP_VELOCITY := 6.5
+# Movement tuning lives in GameState.MOVEMENT (m/s); copied into these vars in _ready().
+# Air strafing works like Source: wish speed is capped in the air, so turning the mouse
+# while holding a strafe key keeps adding (a little) speed.
 const JUMP_BUFFER := 0.12
 const GRAVITY := 18.0
 const STAND_HEIGHT := 1.8
@@ -66,7 +52,26 @@ var slide_boost_cd := 0.0
 var jump_buffer := 0.0
 var was_on_floor := true
 var fall_speed := 0.0
-var walking := false
+var sprinting := false
+
+var run_speed: float
+var sprint_speed: float
+var crouch_speed: float
+var ground_accel: float
+var air_accel: float
+var air_cap: float
+var friction: float
+var stop_speed: float
+var slide_start_speed: float
+var slide_boost: float
+var slide_boost_cd_time: float
+var slide_friction: float
+var slide_min_speed: float
+var max_speed: float
+var jump_velocity: float
+var noise_crouch: float
+var noise_run: float
+var noise_sprint: float
 var last_attack_time := -10.0
 var noise := 0.0               # how far away parents can hear you (m)
 var interact_target: Node = null
@@ -76,6 +81,7 @@ var _eye := EYE_STAND
 
 
 func _ready() -> void:
+	_load_movement_profile()
 	collision_layer = 2
 	collision_mask = 1 | 4 | 8
 	floor_snap_length = 0.3
@@ -97,6 +103,28 @@ func _ready() -> void:
 	_shown_weapon = GameState.weapon_id
 	viewmodel.set_weapon(GameState.weapon_id)
 	GameState.changed.connect(_on_state_changed)
+
+
+func _load_movement_profile() -> void:
+	var m: Dictionary = GameState.MOVEMENT
+	run_speed = m["run_speed"]
+	sprint_speed = m["sprint_speed"]
+	crouch_speed = m["crouch_speed"]
+	ground_accel = m["ground_accel"]
+	air_accel = m["air_accel"]
+	air_cap = m["air_cap"]
+	friction = m["friction"]
+	stop_speed = m["stop_speed"]
+	slide_start_speed = m["slide_start_speed"]
+	slide_boost = m["slide_boost"]
+	slide_boost_cd_time = m["slide_boost_cd"]
+	slide_friction = m["slide_friction"]
+	slide_min_speed = m["slide_min_speed"]
+	max_speed = m["max_speed"]
+	jump_velocity = m["jump_velocity"]
+	noise_crouch = m["noise_crouch"]
+	noise_run = m["noise_run"]
+	noise_sprint = m["noise_sprint"]
 
 
 func _on_state_changed() -> void:
@@ -166,12 +194,12 @@ func _physics_process(delta: float) -> void:
 	var move := Vector2.ZERO
 	var want_crouch := false
 	var jump_held := false
-	walking = false
+	var sprint_held := false
 	if not input_locked:
 		move = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		want_crouch = Input.is_action_pressed("crouch")
 		jump_held = Input.is_action_pressed("jump")
-		walking = Input.is_action_pressed("walk")
+		sprint_held = Input.is_action_pressed("sprint")
 		if Input.is_action_just_pressed("jump"):
 			jump_buffer = JUMP_BUFFER
 
@@ -189,11 +217,14 @@ func _physics_process(delta: float) -> void:
 
 	_update_crouch(want_crouch, on_floor, delta)
 
-	var wishspeed := RUN_SPEED
+	# Sprint is a held state checked on the ground AND in the air, so holding
+	# Shift + Space keeps sprint speed through a chain of bunny hops.
+	sprinting = sprint_held and move.y < 0.0 and not crouching and not sliding
+	var wishspeed := run_speed
 	if crouching and not sliding:
-		wishspeed = CROUCH_SPEED
-	elif walking:
-		wishspeed = WALK_SPEED
+		wishspeed = crouch_speed
+	elif sprinting:
+		wishspeed = sprint_speed
 	if blocking:
 		wishspeed *= 0.55
 	if charge > 0.0:
@@ -205,29 +236,30 @@ func _physics_process(delta: float) -> void:
 	var jumping := on_floor and (jump_buffer > 0.0 or jump_held)
 	if on_floor:
 		if jumping:
+			# Bhop: jump on the landing frame with no friction, and bring speed along the
+			# input direction straight up to the wish speed (never down), so holding
+			# Shift + Space sprint-hops at sprint speed even from a standstill.
 			jump_buffer = 0.0
-			velocity.y = JUMP_VELOCITY
+			if not sliding:
+				_accelerate(wishdir, wishspeed, 1.0 / maxf(delta, 0.001), delta)
+			velocity.y = jump_velocity
 			if sliding:
 				_end_slide()
 			on_floor = false
 		elif sliding:
-			_apply_friction(SLIDE_FRICTION, delta)
+			_apply_friction(slide_friction, delta)
 			_accelerate(wishdir, 2.0, 4.0, delta)  # slight steering
-			if hspeed() < SLIDE_MIN_SPEED:
+			if hspeed() < slide_min_speed:
 				_end_slide()
 		else:
-			_apply_friction(FRICTION, delta)
-			_accelerate(wishdir, wishspeed, GROUND_ACCEL, delta)
+			_apply_friction(friction, delta)
+			_accelerate(wishdir, wishspeed, ground_accel, delta)
 	if not on_floor:
 		velocity.y -= GRAVITY * delta
 		fall_speed = maxf(fall_speed, -velocity.y)
 		_air_accelerate(wishdir, wishspeed, delta)
 
-	var h := Vector2(velocity.x, velocity.z)
-	if h.length() > MAX_SPEED:
-		h = h.normalized() * MAX_SPEED
-		velocity.x = h.x
-		velocity.z = h.y
+	_clamp_speed()
 	move_and_slide()
 
 	# Landing.
@@ -236,7 +268,7 @@ func _physics_process(delta: float) -> void:
 		shake = maxf(shake, clampf(fall_speed / 30.0, 0.0, 0.4))
 		fall_speed = 0.0
 		# Landing with crouch held and speed turns straight into a slide.
-		if want_crouch and hspeed() > SLIDE_START_SPEED:
+		if want_crouch and hspeed() > slide_start_speed:
 			_start_slide()
 	was_on_floor = is_on_floor()
 
@@ -249,9 +281,14 @@ func _physics_process(delta: float) -> void:
 
 	GameState.stamina = minf(GameState.stamina + STAMINA_REGEN * delta, GameState.max_stamina())
 
-	# Noise for AI hearing: speed-based, quieter when walking, loud when fighting.
+	# Noise for AI hearing: speed-based; crouch-walking is quiet, sprinting is loud.
 	var hs := hspeed()
-	var target_noise := 2.0 + hs * (0.35 if walking else 0.8)
+	var noise_k := noise_run
+	if crouching and not sliding:
+		noise_k = noise_crouch
+	elif sprinting:
+		noise_k = noise_sprint
+	var target_noise := 2.0 + hs * noise_k
 	if sliding:
 		target_noise += 3.0
 	if _time - last_attack_time < 1.0:
@@ -259,7 +296,7 @@ func _physics_process(delta: float) -> void:
 	noise = lerpf(noise, target_noise, minf(delta * 4.0, 1.0))
 
 	_update_camera(delta, move, hs)
-	viewmodel.tick(delta, hs, hs > RUN_SPEED + 1.0 or sliding, is_on_floor())
+	viewmodel.tick(delta, hs, sprinting or sliding, is_on_floor())
 	_update_interact_target()
 
 
@@ -275,28 +312,37 @@ func _air_accelerate(wishdir: Vector3, wishspeed: float, delta: float) -> void:
 	if wishdir == Vector3.ZERO:
 		return
 	var current := velocity.dot(wishdir)
-	var add := minf(wishspeed, AIR_CAP) - current
+	var add := minf(wishspeed, air_cap) - current
 	if add <= 0.0:
 		return
-	velocity += wishdir * minf(AIR_ACCEL * wishspeed * delta, add)
+	velocity += wishdir * minf(air_accel * wishspeed * delta, add)
 
 
-func _apply_friction(friction: float, delta: float) -> void:
+func _apply_friction(amount: float, delta: float) -> void:
 	var speed := hspeed()
 	if speed < 0.05:
 		velocity.x = 0.0
 		velocity.z = 0.0
 		return
-	var drop := maxf(speed, STOP_SPEED) * friction * delta
+	var drop := maxf(speed, stop_speed) * amount * delta
 	var k := maxf(speed - drop, 0.0) / speed
 	velocity.x *= k
 	velocity.z *= k
 
 
+## Hard horizontal speed cap (MOVEMENT.max_speed).
+func _clamp_speed() -> void:
+	var h := Vector2(velocity.x, velocity.z)
+	if h.length() > max_speed:
+		h = h.normalized() * max_speed
+		velocity.x = h.x
+		velocity.z = h.y
+
+
 func _update_crouch(want: bool, on_floor: bool, delta: float) -> void:
 	if want and not crouching:
 		crouching = true
-		if on_floor and hspeed() > SLIDE_START_SPEED:
+		if on_floor and hspeed() > slide_start_speed:
 			_start_slide()
 	elif not want and crouching and _can_stand():
 		crouching = false
@@ -322,9 +368,9 @@ func _start_slide() -> void:
 		return
 	sliding = true
 	if slide_boost_cd <= 0.0:
-		slide_boost_cd = SLIDE_BOOST_CD
+		slide_boost_cd = slide_boost_cd_time
 		var h := Vector2(velocity.x, velocity.z)
-		var boosted := h.normalized() * minf(h.length() + SLIDE_BOOST, MAX_SPEED)
+		var boosted := h.normalized() * minf(h.length() + slide_boost, max_speed)
 		velocity.x = boosted.x
 		velocity.z = boosted.y
 	Sfx.play("whoosh", 0.05, -6.0)
@@ -409,7 +455,7 @@ func _resolve_hit(mult: float, heavy: bool, combo_step: int) -> void:
 	var hits := 0
 	var finisher := combo_step == 2 or heavy
 	# Momentum hits harder: sliding/bhopping into someone adds damage and knockback.
-	var momentum := clampf((hspeed() - RUN_SPEED) / 10.0, 0.0, 0.6)
+	var momentum := clampf((hspeed() - run_speed) / (max_speed - run_speed), 0.0, 0.6)
 	for p in get_tree().get_nodes_in_group("parents"):
 		var to: Vector3 = p.global_position - global_position
 		var flat := Vector3(to.x, 0, to.z)
@@ -475,7 +521,8 @@ func _hitstop(duration: float) -> void:
 
 
 func _update_camera(delta: float, move: Vector2, hs: float) -> void:
-	var speed_fov := clampf((hs - RUN_SPEED) * 0.9, 0.0, 16.0)
+	# FOV widens across the run-speed .. cap range (up to +12 degrees).
+	var speed_fov := clampf((hs - run_speed) / (max_speed - run_speed), 0.0, 1.0) * 12.0
 	var target_fov: float = GameState.fov + speed_fov - charge_fraction() * 6.0
 	camera.fov = lerpf(camera.fov, target_fov, minf(delta * 8.0, 1.0))
 	# Strafe tilt, extra roll while sliding.
@@ -484,7 +531,7 @@ func _update_camera(delta: float, move: Vector2, hs: float) -> void:
 	shake = maxf(shake - delta * 3.0, 0.0)
 	var bob := 0.0
 	if is_on_floor() and hs > 0.5 and not sliding:
-		bob = sin(_time * minf(hs, 10.0) * 1.6) * 0.025 * clampf(hs / RUN_SPEED, 0.0, 1.3)
+		bob = sin(_time * minf(hs, 10.0) * 1.6) * 0.025 * clampf(hs / run_speed, 0.0, 1.3)
 	camera.position = Vector3(randf_range(-1, 1) * shake * 0.04, bob + randf_range(-1, 1) * shake * 0.04, 0)
 
 
@@ -532,6 +579,7 @@ func take_damage(amount: float, from_dir := Vector3.ZERO, attacker: Node = null)
 	GameState.damage(amount)
 	var push := Vector3(from_dir.x, 0, from_dir.z).normalized() * (2.5 if blocking else 7.0)
 	velocity += push + Vector3(0, 0.0 if blocking else 1.5, 0)
+	_clamp_speed()
 	shake = maxf(shake, 0.4 if blocking else 0.9)
 	main.on_player_hurt(blocking, global_position - from_dir * 2.0)
 	if GameState.health <= 0.0:

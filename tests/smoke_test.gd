@@ -241,31 +241,90 @@ func _ready() -> void:
 	check(target.awareness() < 2, "blinded parent can't see you")
 	target.take_damage(99999.0)
 
-	# Movement: slide boost, bunny hop keeps speed, air strafing gains speed.
-	pl.global_position = Vector3(0, 0.1, 12)
-	pl.rotation.y = 0.0
+	# Movement retune (specs/001-movement-retune): run/sprint speeds, sprint-bhop,
+	# speed cap, small rate-limited slide boost, gentle air strafing, free stamina.
+	# Open strip of the parking lot (z = 18, x from -18 toward +x), away from kids and cars.
+	for par in get_tree().get_nodes_in_group("parents"):
+		par.take_damage(99999.0)
+	var lane := Vector3(-18, 0.1, 18.5)
+	pl.global_position = lane
+	pl.rotation.y = -PI / 2  # face +X
 	pl.velocity = Vector3.ZERO
 	await frames(10)
-	pl.velocity = Vector3(0, 0, -8.0)
+	gs.stamina = gs.max_stamina()
+	var stamina_before := gs.stamina
+	Input.action_press("move_forward")
+	await frames(60)
+	var run_v: float = pl.hspeed()
+	check(run_v >= 4.5 and run_v <= 5.5, "sustained run speed 4.5-5.5 m/s (%.2f)" % run_v)
+	Input.action_press("sprint")
+	await frames(60)
+	var sprint_v: float = pl.hspeed()
+	check(sprint_v >= 6.3 and sprint_v <= 7.3, "sustained sprint speed 6.3-7.3 m/s (%.2f)" % sprint_v)
+	pl.global_position = lane
+	Input.action_press("jump")
+	var min_hop := 99.0
+	for i in 180:
+		await frames(1)
+		pl.velocity.z = 0.0
+		min_hop = minf(min_hop, pl.hspeed())
+	Input.action_release("jump")
+	check(min_hop >= 6.5, "sprint + bhop keeps >= 6.5 m/s for 3 s (min %.2f)" % min_hop)
+	Input.action_release("sprint")
+	Input.action_release("move_forward")
+	await frames(30)
+	# Sprint-hopping from a standstill reaches sprint speed quickly.
+	pl.global_position = lane
+	pl.velocity = Vector3.ZERO
+	await frames(10)
+	Input.action_press("move_forward")
+	Input.action_press("sprint")
+	Input.action_press("jump")
+	await frames(90)
+	var hop_start_v: float = pl.hspeed()
+	Input.action_release("jump")
+	Input.action_release("sprint")
+	Input.action_release("move_forward")
+	check(hop_start_v >= 6.3 and hop_start_v <= 7.3, "Shift + Space from standstill sprint-hops at sprint speed (%.2f)" % hop_start_v)
+	for i in 120:  # let them land and the slide-boost cooldown expire
+		await frames(1)
+		if pl.is_on_floor() and i > 70:
+			break
+	# Slide boost is small and rate-limited.
+	pl.global_position = lane
+	pl.velocity = Vector3(6.8, 0, 0)
 	await frames(1)
+	var pre_slide: float = pl.hspeed()
 	Input.action_press("crouch")
 	await frames(2)
-	check(pl.sliding and pl.hspeed() > 9.0, "crouch at speed = slide with boost")
+	var boost: float = pl.hspeed() - pre_slide
+	check(pl.sliding and boost > 0.5 and boost <= 2.5, "slide from sprint adds a small boost (+%.2f m/s)" % boost)
+	Input.action_release("crouch")
+	await frames(3)
+	pl.velocity = Vector3(6.8, 0, 0)
+	await frames(1)
+	pre_slide = pl.hspeed()
+	Input.action_press("crouch")
+	await frames(2)
+	check(pl.hspeed() <= pre_slide + 0.05, "second slide within 1 s adds no boost")
 	Input.action_release("crouch")
 	await frames(20)
-	pl.velocity = Vector3(0, 0, -9.0)
-	Input.action_press("jump")
-	for i in 70:
-		pl.velocity.x = 0.0
-		await frames(1)
-	var hop_speed: float = pl.hspeed()
-	Input.action_release("jump")
-	check(hop_speed > 7.5, "bunny hopping keeps your speed (%.1f m/s)" % hop_speed)
-	pl.velocity = Vector3(8.0, 0, 0)
+	check(gs.stamina == stamina_before, "movement never spends stamina")
+	# Hard cap.
+	pl.velocity = Vector3(40, 0, 0)
+	pl._clamp_speed()
+	check(pl.hspeed() <= 12.0 + 0.001, "speed is capped at 12 m/s")
+	# Air strafing still gains speed, but gently, and never past the cap.
+	pl.velocity = Vector3(6.8, 0, 0)
 	var before: float = pl.hspeed()
 	for i in 30:
-		pl._air_accelerate(Vector3(0, 0, -1).rotated(Vector3.UP, i * 0.02), pl.RUN_SPEED, 1.0 / 60.0)
-	check(pl.hspeed() > before, "air strafing gains speed")
+		pl._air_accelerate(Vector3(0, 0, -1).rotated(Vector3.UP, i * 0.02), pl.sprint_speed, 1.0 / 60.0)
+	var gain: float = pl.hspeed() - before
+	check(gain > 0.0 and gain < 1.0, "air strafing gains speed gradually (+%.2f over 30 frames)" % gain)
+	for i in 2000:
+		pl._air_accelerate(Vector3(0, 0, -1).rotated(Vector3.UP, i * 0.02), pl.sprint_speed, 1.0 / 60.0)
+		pl._clamp_speed()
+	check(pl.hspeed() <= 12.0 + 0.001, "air strafing stays under the cap")
 	pl.velocity = Vector3.ZERO
 
 	# Pause menu.
