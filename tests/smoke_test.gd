@@ -710,6 +710,13 @@ func _test_hands() -> void:
 			if mi.material_override == m.nail_mat():
 				nails += 1
 	check(nails == 10, "ten fingernails")
+	var skin_ok := true
+	var vcount := 0
+	for m in [vm.model_l, vm.model_r]:
+		var sm: MeshInstance3D = m.skin_mesh
+		vcount = (sm.mesh as ArrayMesh).surface_get_array_len(0)
+		skin_ok = skin_ok and sm.skin != null and sm.skin.get_bind_count() == 16 and vcount > 10000
+	check(skin_ok, "each hand is one continuous skinned skin mesh (%d verts, 16 bones)" % vcount)
 	var all_ok := true
 	for id in gs.WEAPON_ORDER:
 		gs.equip_weapon(id)

@@ -210,6 +210,10 @@ func _ready() -> void:
 	_setup_input()
 	load_settings()
 	reset()
+	# Generate the realistic first-person hand mesh in the background (specs/005).
+	load("res://scripts/hand_mesh.gd").start_async()
+	# Generate the realistic first-person hand mesh in the background (specs/005).
+	load("res://scripts/hand_mesh.gd").start_async()
 
 
 func reset() -> void:

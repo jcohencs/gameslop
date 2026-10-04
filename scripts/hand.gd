@@ -1,25 +1,20 @@
 extends Node3D
-## A realistic first-person hand (specs/005), built entirely in code: palm with thenar pads,
-## four three-segment fingers and a three-segment thumb with knuckles and nails, a fingerless
-## tactical glove with knuckle armor and a wrist strap. Fingers blend between data-driven poses,
-## clench on punches, squeeze the trigger on shots and idle with tiny movements.
+## A realistic first-person hand (specs/005). The skin is one continuous, anatomically shaped mesh
+## generated from a signed distance field (scripts/hand_mesh.gd) and skinned to a 16-bone
+## skeleton, so fingers bend smoothly like real skin. Curved glossy nails ride on the fingertip
+## bones; a folded cloth sleeve, rolled cuff and a digital watch (left wrist) finish the forearm.
+## Fingers blend between data-driven poses, clench on punches, squeeze the trigger on shots and
+## idle with tiny movements.
 ##
 ## Frame: the wrist is at +Z, fingers point -Z when open, +Y is the back of the hand (the palm
 ## faces -Y). side = 1 for the right hand (thumb toward -X), -1 for the left.
 
-const FINGERS := [
-	# [x at the knuckle line, knuckle z offset, segment lengths, base radius]
-	[-0.026, 0.0, [0.042, 0.026, 0.021], 0.0098],   # index
-	[-0.0085, -0.004, [0.046, 0.029, 0.022], 0.0102],  # middle
-	[0.0095, -0.001, [0.043, 0.027, 0.021], 0.0096],  # ring
-	[0.0265, 0.006, [0.034, 0.021, 0.018], 0.0085],  # pinky
-]
-const THUMB := [0.034, 0.03, 0.024]
-const THUMB_R := 0.0125
-const KNUCKLE_Z := -0.046
-const TAPER := 0.88
+const HandMesh := preload("res://scripts/hand_mesh.gd")
+
 const SPREAD_K := [1.5, 0.5, -0.5, -1.5]
 const BLEND := 16.0
+## Fist center in model space: grips are oriented around this point.
+const FIST_CENTER := Vector3(0, -0.014, -0.05)
 
 ## Curl (radians) per joint for index, middle, ring, pinky; thumb [metacarpal, proximal, distal].
 const POSES := {
@@ -34,23 +29,23 @@ const POSES := {
 }
 
 static var _skin: StandardMaterial3D
-static var _leather: StandardMaterial3D
-static var _armor: StandardMaterial3D
 static var _nail: StandardMaterial3D
 static var _fabric: StandardMaterial3D
-
-## Fist center in model space: grips are oriented around this point.
-const FIST_CENTER := Vector3(0, -0.014, -0.05)
+static var _steel: StandardMaterial3D
 
 var side := 1.0
 var model: Node3D               # oriented per grip; everything else hangs off it
+var skeleton: Skeleton3D
+var skin_mesh: MeshInstance3D
 var knuckle_anchor: Node3D      # accessories (brass knuckles, gauntlet) attach here
 var palm_anchor: Node3D         # held items (sand pouch) attach here
-var fingers: Array = []         # [[j0, j1, j2], ...] index..pinky
-var thumb: Array = []           # [metacarpal, proximal, distal]
+var fingers: Array = []         # [[bone, bone, bone], ...] index..pinky
+var thumb: Array = []           # [metacarpal, proximal, distal] bones
 var pose := "relaxed"
 var squeeze_t := 0.0
 var pulse_t := 0.0
+var _rest_local: Array = []     # per bone, rest transform relative to its parent
+var _applied: Array = []        # per finger, the three curl angles last applied
 var _cur := {}
 var _target := {}
 var _t := 0.0
@@ -58,10 +53,17 @@ var _t := 0.0
 
 func _ready() -> void:
 	name = "Hand"
-	scale = Vector3.ONE * 1.25  # chunky action-game proportions
+	scale = Vector3.ONE * 1.18
 	model = Node3D.new()
 	add_child(model)
-	_build()
+	_build_skeleton()
+	_build_forearm()
+	knuckle_anchor = Node3D.new()
+	knuckle_anchor.position = Vector3(0, 0.004, -0.058)
+	model.add_child(knuckle_anchor)
+	palm_anchor = Node3D.new()
+	palm_anchor.position = Vector3(0, -0.032, -0.03)
+	model.add_child(palm_anchor)
 	_target = POSES["relaxed"].duplicate(true)
 	_cur = POSES["relaxed"].duplicate(true)
 	_apply(0.0)
@@ -69,7 +71,7 @@ func _ready() -> void:
 
 # --- Materials ------------------------------------------------------------------
 
-## Fine bumpy normal map from value noise (pores, leather grain).
+## Fine bumpy normal map from value noise (pores, cloth weave).
 static func _detail_normal(period: int, seed_: int, strength: float) -> ImageTexture:
 	var n := 128
 	var img := Image.create(n, n, false, Image.FORMAT_RGB8)
@@ -77,227 +79,263 @@ static func _detail_normal(period: int, seed_: int, strength: float) -> ImageTex
 		for x in n:
 			var u := float(x) / n
 			var v := float(y) / n
-			var h := Art._vnoise(u, v, period, seed_) * 0.7 + Art._vnoise(u, v, period * 3, seed_ + 1) * 0.3
+			var h := Art._vnoise(u, v, period, seed_) * 0.6 + Art._vnoise(u, v, period * 3, seed_ + 1) * 0.4
 			img.set_pixel(x, y, Color(h, h, h))
 	img.bump_map_to_normal_map(strength)
 	img.generate_mipmaps()
 	return ImageTexture.create_from_image(img)
 
 
+## Skin: painted per vertex (tone variation, knuckles, creases, veins) with a soft subsurface
+## glow. (A pore normal map was tried and dropped: at viewmodel distance it only read as fuzz.)
 static func skin_mat() -> StandardMaterial3D:
 	if _skin == null:
 		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.78, 0.52, 0.4)
-		m.roughness = 0.55
-		m.metallic_specular = 0.35
-		m.normal_enabled = true
-		m.normal_texture = _detail_normal(24, 51, 3.0)
-		m.normal_scale = 0.5
-		m.uv1_scale = Vector3(3, 3, 3)
+		m.vertex_color_use_as_albedo = true
+		m.vertex_color_is_srgb = true
+		m.albedo_color = Color(1, 1, 1)
+		m.roughness = 0.58
+		m.metallic_specular = 0.32
 		m.subsurf_scatter_enabled = true
-		m.subsurf_scatter_strength = 0.3
-		m.rim_enabled = true
-		m.rim = 0.2
-		m.rim_tint = 0.6
+		m.subsurf_scatter_strength = 0.35
+		m.subsurf_scatter_skin_mode = true
 		_skin = m
 	return _skin
-
-
-static func leather_mat() -> StandardMaterial3D:
-	if _leather == null:
-		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.1, 0.095, 0.09)
-		m.roughness = 0.42
-		m.normal_enabled = true
-		m.normal_texture = _detail_normal(40, 77, 4.0)
-		m.normal_scale = 0.7
-		m.uv1_scale = Vector3(4, 4, 4)
-		m.rim_enabled = true
-		m.rim = 0.25
-		m.rim_tint = 0.3
-		_leather = m
-	return _leather
-
-
-static func armor_mat() -> StandardMaterial3D:
-	if _armor == null:
-		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.26, 0.28, 0.27)
-		m.metallic = 0.75
-		m.roughness = 0.32
-		m.rim_enabled = true
-		m.rim = 0.3
-		_armor = m
-	return _armor
-
-
-static func fabric_mat() -> StandardMaterial3D:
-	if _fabric == null:
-		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.17, 0.19, 0.16)
-		m.roughness = 0.9
-		m.normal_enabled = true
-		m.normal_texture = _detail_normal(64, 91, 3.0)
-		m.normal_scale = 0.35
-		m.uv1_scale = Vector3(3, 3, 3)
-		m.rim_enabled = true
-		m.rim = 0.2
-		_fabric = m
-	return _fabric
 
 
 static func nail_mat() -> StandardMaterial3D:
 	if _nail == null:
 		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.95, 0.8, 0.76)
-		m.roughness = 0.2
+		m.vertex_color_use_as_albedo = true
+		m.vertex_color_is_srgb = true
+		m.roughness = 0.18
+		m.metallic_specular = 0.6
+		m.clearcoat_enabled = true
+		m.clearcoat = 0.6
+		m.clearcoat_roughness = 0.1
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
 		_nail = m
 	return _nail
 
 
-# --- Geometry --------------------------------------------------------------------
-
-func _mesh(parent: Node3D, mesh: Mesh, pos: Vector3, mat: Material, rot := Vector3.ZERO, scl := Vector3.ONE) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = mat
-	mi.position = pos
-	mi.rotation = rot
-	mi.scale = scl
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(mi)
-	return mi
-
-
-static func _capsule(r: float, h: float) -> CapsuleMesh:
-	var c := CapsuleMesh.new()
-	c.radius = r
-	c.height = maxf(h, r * 2.0 + 0.001)
-	c.radial_segments = 12
-	c.rings = 4
-	return c
+static func fabric_mat() -> StandardMaterial3D:
+	if _fabric == null:
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(0.2, 0.22, 0.19)
+		m.roughness = 0.92
+		m.normal_enabled = true
+		m.normal_texture = _detail_normal(96, 91, 3.5)
+		m.normal_scale = 0.5
+		m.uv1_scale = Vector3(2, 6, 1)
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_fabric = m
+	return _fabric
 
 
-static func _sphere(r: float) -> SphereMesh:
-	var s := SphereMesh.new()
-	s.radius = r
-	s.height = r * 2.0
-	s.radial_segments = 12
-	s.rings = 6
-	return s
+static func steel_mat() -> StandardMaterial3D:
+	if _steel == null:
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(0.32, 0.33, 0.35)
+		m.metallic = 0.85
+		m.roughness = 0.3
+		_steel = m
+	return _steel
 
 
-static func _box(size: Vector3) -> BoxMesh:
-	var b := BoxMesh.new()
-	b.size = size
-	return b
+# --- Skeleton and skin ----------------------------------------------------------------
+
+func _mirror(t: Transform3D) -> Transform3D:
+	if side > 0.0:
+		return t
+	var m := Basis(Vector3(-1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1))
+	return Transform3D(m * t.basis * m, Vector3(-t.origin.x, t.origin.y, t.origin.z))
 
 
-static func _cyl(r: float, h: float, r2 := -1.0) -> CylinderMesh:
-	var c := CylinderMesh.new()
-	c.top_radius = r
-	c.bottom_radius = r if r2 < 0.0 else r2
-	c.height = h
-	c.radial_segments = 14
-	return c
-
-
-## One finger segment (tapered capsule along -Z) on a joint pivot.
-func _segment(pivot: Node3D, length: float, r: float, nail: bool) -> void:
-	_mesh(pivot, _capsule(r, length + r * 1.6), Vector3(0, 0, -length * 0.5), skin_mat(), Vector3(PI / 2, 0, 0))
-	if nail:
-		_mesh(pivot, _box(Vector3(r * 1.3, 0.0025, r * 1.35)), Vector3(0, r * 0.8, -length * 0.62), nail_mat(), Vector3(0.08, 0, 0))
-
-
-func _build() -> void:
-	var s := side
-	var skin := skin_mat()
-	# Palm: a flat block rounded by pads (thenar at the thumb, hypothenar at the pinky edge).
-	_mesh(model, _box(Vector3(0.078, 0.026, 0.09)), Vector3(0, 0, 0.0), skin)
-	_mesh(model, _sphere(0.045), Vector3(0, 0.001, -0.002), skin, Vector3.ZERO, Vector3(0.92, 0.36, 1.08))
-	_mesh(model, _sphere(0.022), Vector3(-0.026 * s, -0.008, 0.016), skin, Vector3.ZERO, Vector3(1.0, 0.7, 1.45))
-	_mesh(model, _sphere(0.018), Vector3(0.029 * s, -0.006, 0.012), skin, Vector3.ZERO, Vector3(0.9, 0.7, 1.6))
-	# Wrist.
-	_mesh(model, _cyl(0.025, 0.07, 0.027), Vector3(0, 0.0, 0.08), skin, Vector3(PI / 2, 0, 0), Vector3(1.15, 0.8, 1))
-
-	# Fingers.
+func _build_skeleton() -> void:
+	var sk := HandMesh.skeleton_rest()
+	var rest: Array = sk["rest"]
+	var parent: Array = sk["parent"]
+	skeleton = Skeleton3D.new()
+	model.add_child(skeleton)
+	var glob := []
+	for i in rest.size():
+		glob.append(_mirror(rest[i]))
+	var skin := Skin.new()
+	for i in rest.size():
+		skeleton.add_bone("b%d" % i)
+		var local: Transform3D = glob[i]
+		if parent[i] >= 0:
+			skeleton.set_bone_parent(i, parent[i])
+			local = (glob[parent[i]] as Transform3D).affine_inverse() * glob[i]
+		skeleton.set_bone_rest(i, local)
+		skeleton.reset_bone_pose(i)
+		_rest_local.append(local)
+		skin.add_bind(i, (glob[i] as Transform3D).affine_inverse())
 	fingers.clear()
-	for f in FINGERS:
-		var lens: Array = f[2]
-		var r: float = f[3]
-		var j0 := Node3D.new()
-		j0.position = Vector3(f[0] * s, 0.002, KNUCKLE_Z + f[1])
-		model.add_child(j0)
-		_mesh(j0, _sphere(r * 1.12), Vector3(0, 0.002, 0), skin)  # knuckle
-		_segment(j0, lens[0], r, false)
-		var j1 := Node3D.new()
-		j1.position = Vector3(0, 0, -lens[0])
-		j0.add_child(j1)
-		_mesh(j1, _sphere(r * 0.86), Vector3(0, r * 0.25, 0), skin)
-		_segment(j1, lens[1], r * TAPER, false)
-		var j2 := Node3D.new()
-		j2.position = Vector3(0, 0, -lens[1])
-		j1.add_child(j2)
-		_mesh(j2, _sphere(r * 0.76), Vector3(0, r * 0.2, 0), skin)
-		_segment(j2, lens[2], r * TAPER * TAPER, true)
-		# Fingerless glove: a leather sleeve over the base of each finger.
-		_mesh(j0, _cyl(r * 1.22, lens[0] * 0.5), Vector3(0, 0, -lens[0] * 0.22), leather_mat(), Vector3(PI / 2, 0, 0))
-		fingers.append([j0, j1, j2])
+	for f in 4:
+		fingers.append([1 + f * 3, 2 + f * 3, 3 + f * 3])
+		_applied.append([0.0, 0.0, 0.0])
+	thumb = [13, 14, 15]
+	var meshes: Array = HandMesh.meshes()
+	skin_mesh = MeshInstance3D.new()
+	skin_mesh.name = "Skin"
+	skin_mesh.mesh = meshes[0] if side > 0.0 else meshes[1]
+	skin_mesh.material_override = skin_mat()
+	skin_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	skin_mesh.extra_cull_margin = 0.5
+	skeleton.add_child(skin_mesh)
+	skin_mesh.skin = skin
+	skin_mesh.skeleton = NodePath("..")
+	for spot in meshes[2]:
+		_add_nail(spot)
 
-	# Thumb: angled out from the palm, rolled so it folds across the palm.
-	var base := Node3D.new()
-	base.position = Vector3(-0.034 * s, -0.007, 0.022)
-	base.rotation = Vector3(0, 0.62 * s, 1.0 * s)
-	model.add_child(base)
-	var t0 := Node3D.new()
-	base.add_child(t0)
-	_segment(t0, THUMB[0], THUMB_R, false)
-	var t1 := Node3D.new()
-	t1.position = Vector3(0, 0, -THUMB[0])
-	t0.add_child(t1)
-	_mesh(t1, _sphere(THUMB_R * 0.9), Vector3.ZERO, skin)
-	_segment(t1, THUMB[1], THUMB_R * 0.92, false)
-	var t2 := Node3D.new()
-	t2.position = Vector3(0, 0, -THUMB[1])
-	t1.add_child(t2)
-	_mesh(t2, _sphere(THUMB_R * 0.8), Vector3.ZERO, skin)
-	_segment(t2, THUMB[2], THUMB_R * 0.85, true)
-	_mesh(t0, _cyl(THUMB_R * 1.2, THUMB[0] * 0.8), Vector3(0, 0, -THUMB[0] * 0.4), leather_mat(), Vector3(PI / 2, 0, 0))
-	thumb = [t0, t1, t2]
 
-	# Glove shell over the palm and back of the hand, armor plates and the wrist strap.
-	var lm := leather_mat()
-	_mesh(model, _box(Vector3(0.083, 0.03, 0.074)), Vector3(0, 0, 0.008), lm)
-	_mesh(model, _sphere(0.046), Vector3(0, 0.002, 0.004), lm, Vector3.ZERO, Vector3(0.95, 0.4, 0.86))
-	var am := armor_mat()
-	_mesh(model, _box(Vector3(0.056, 0.008, 0.046)), Vector3(0.002 * s, 0.018, 0.006), am, Vector3(0.05, 0, 0))
-	_mesh(model, _box(Vector3(0.082, 0.012, 0.016)), Vector3(0, 0.016, KNUCKLE_Z + 0.004), am)
-	for f in FINGERS:
-		_mesh(model, _sphere(0.0072), Vector3(f[0] * s, 0.022, KNUCKLE_Z + f[1] * 0.5), am, Vector3.ZERO, Vector3(1, 0.7, 1))
-	_mesh(model, _cyl(0.031, 0.016), Vector3(0, 0, 0.046), lm, Vector3(PI / 2, 0, 0), Vector3(1.12, 0.85, 1))
-	_mesh(model, _box(Vector3(0.016, 0.006, 0.018)), Vector3(0, 0.025, 0.046), am)
+## A curved nail plate with a pale lunula at the base and a whiter free edge.
+func _add_nail(spot: Array) -> void:
+	var bone: int = spot[0]
+	var surf: Vector3 = spot[1]
+	var w: float = spot[2]
+	var l: float = spot[3]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var nx := 7
+	var nz := 7
+	var pts := []
+	for iz in nz:
+		var row := []
+		for ix in nx:
+			var u := float(ix) / (nx - 1) * 2.0 - 1.0
+			var v := float(iz) / (nz - 1)
+			var x := u * w * 0.5
+			var z := (0.5 - v) * l
+			var y := -u * u * w * 0.28 + 0.0007
+			var tip := clampf((v - 0.82) / 0.18, 0.0, 1.0)
+			var lun := clampf(1.0 - v / 0.22, 0.0, 1.0) * clampf(1.0 - absf(u) * 1.2, 0.0, 1.0)
+			var c := Color(0.92, 0.72, 0.68).lerp(Color(0.98, 0.94, 0.9), maxf(tip, lun * 0.8))
+			row.append([Vector3(x, y, z), c])
+		pts.append(row)
+	for iz in nz - 1:
+		for ix in nx - 1:
+			for q in [[iz, ix], [iz + 1, ix], [iz + 1, ix + 1], [iz, ix], [iz + 1, ix + 1], [iz, ix + 1]]:
+				var pt: Array = pts[q[0]][q[1]]
+				st.set_color(pt[1])
+				st.add_vertex(pt[0])
+	st.generate_normals()
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = nail_mat()
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var att := BoneAttachment3D.new()
+	skeleton.add_child(att)
+	att.bone_idx = bone
+	att.add_child(mi)
+	var p := surf
+	p.x *= side
+	mi.position = p
+	mi.rotation.x = -0.06
 
-	# Forearm: rolled sleeve and cuff (part of the model so it follows every grip).
-	var fm := fabric_mat()
-	_mesh(model, _cyl(0.037, 0.44, 0.047), Vector3(0, -0.002, 0.35), fm, Vector3(-PI / 2, 0, 0), Vector3(1.1, 0.9, 1))
-	_mesh(model, _cyl(0.041, 0.035), Vector3(0, -0.002, 0.132), fm, Vector3(PI / 2, 0, 0), Vector3(1.12, 0.92, 1))
+
+# --- Forearm -------------------------------------------------------------------------
+
+## Lofted cloth sleeve with folds, a rolled cuff, and (left wrist) a digital watch.
+func _build_forearm() -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rings := 22
+	var segs := 28
+	var grid := []
+	for i in rings:
+		var t := float(i) / (rings - 1)
+		var z := lerpf(0.118, 0.56, t)
+		var row := []
+		for j in segs + 1:
+			var a := float(j) / segs * TAU
+			var fold := 0.05 * sin(a * 3.0 + t * 9.0) * (1.0 - t * 0.5) + 0.035 * (Art._vnoise(a / TAU * 3.0, t * 4.0, 3, 17) - 0.5) * 2.0
+			var r := lerpf(0.035, 0.046, t) * (1.0 + fold)
+			row.append([Vector3(cos(a) * r * 1.12, sin(a) * r * 0.9 - 0.002, z), Vector2(float(j) / segs, t)])
+		grid.append(row)
+	for i in rings - 1:
+		for j in segs:
+			for q in [[i, j], [i, j + 1], [i + 1, j + 1], [i, j], [i + 1, j + 1], [i + 1, j]]:
+				var pt: Array = grid[q[0]][q[1]]
+				st.set_uv(pt[1])
+				st.add_vertex(pt[0])
+	st.generate_normals()
+	st.generate_tangents()
+	var sleeve := MeshInstance3D.new()
+	sleeve.name = "Sleeve"
+	sleeve.mesh = st.commit()
+	sleeve.material_override = fabric_mat()
+	sleeve.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	model.add_child(sleeve)
+	# Rolled cuff: a fat ring at the sleeve's edge.
+	var cuff := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.029
+	tm.outer_radius = 0.041
+	tm.rings = 32
+	tm.ring_segments = 12
+	cuff.mesh = tm
+	cuff.material_override = fabric_mat()
+	cuff.position = Vector3(0, -0.002, 0.123)
+	cuff.rotation.x = PI / 2
+	cuff.scale = Vector3(1.12, 1.0, 0.92)
+	cuff.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	model.add_child(cuff)
 	if side < 0.0:
-		# A cheap digital watch on the left wrist.
-		_mesh(model, _cyl(0.029, 0.016), Vector3(0, 0, 0.097), leather_mat(), Vector3(PI / 2, 0, 0), Vector3(1.1, 0.85, 1))
-		_mesh(model, _box(Vector3(0.024, 0.009, 0.026)), Vector3(0, 0.026, 0.097), armor_mat())
-		var face := StandardMaterial3D.new()
-		face.albedo_color = Color(0.4, 1.0, 0.5)
-		face.emission_enabled = true
-		face.emission = Color(0.4, 1.0, 0.5)
-		face.emission_energy_multiplier = 1.5
-		_mesh(model, _box(Vector3(0.017, 0.002, 0.018)), Vector3(0, 0.031, 0.097), face)
+		_build_watch()
 
-	knuckle_anchor = Node3D.new()
-	knuckle_anchor.position = Vector3(0, 0.004, KNUCKLE_Z - 0.006)
-	model.add_child(knuckle_anchor)
-	palm_anchor = Node3D.new()
-	palm_anchor.position = Vector3(0, -0.032, -0.03)
-	model.add_child(palm_anchor)
+
+func _build_watch() -> void:
+	var w := Node3D.new()
+	w.name = "Watch"
+	w.position = Vector3(0, 0, 0.098)
+	model.add_child(w)
+	var band := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.0255
+	tm.outer_radius = 0.0285
+	tm.rings = 32
+	band.mesh = tm
+	var bm := StandardMaterial3D.new()
+	bm.albedo_color = Color(0.08, 0.08, 0.09)
+	bm.roughness = 0.6
+	band.material_override = bm
+	band.rotation.x = PI / 2
+	band.scale = Vector3(1.12, 1.0, 0.78)
+	w.add_child(band)
+	var case_mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.0145
+	cm.bottom_radius = 0.0155
+	cm.height = 0.008
+	case_mi.mesh = cm
+	case_mi.material_override = steel_mat()
+	case_mi.position = Vector3(0, 0.0235, 0)
+	w.add_child(case_mi)
+	var face := MeshInstance3D.new()
+	var fm := CylinderMesh.new()
+	fm.top_radius = 0.0115
+	fm.bottom_radius = 0.0115
+	fm.height = 0.002
+	face.mesh = fm
+	var lcd := StandardMaterial3D.new()
+	lcd.albedo_color = Color(0.25, 0.3, 0.22)
+	lcd.emission_enabled = true
+	lcd.emission = Color(0.35, 0.85, 0.45)
+	lcd.emission_energy_multiplier = 0.6
+	lcd.roughness = 0.05
+	face.material_override = lcd
+	face.position = Vector3(0, 0.0275, 0)
+	w.add_child(face)
+	for i in 3:
+		var btn := MeshInstance3D.new()
+		var b := BoxMesh.new()
+		b.size = Vector3(0.003, 0.0025, 0.004)
+		btn.mesh = b
+		btn.material_override = steel_mat()
+		btn.position = Vector3((0.016 if i < 2 else -0.016), 0.0235, -0.004 + (i % 2) * 0.008)
+		w.add_child(btn)
 
 
 # --- Grip orientation ------------------------------------------------------------------
@@ -308,10 +346,9 @@ func orient(b: Basis) -> void:
 	model.transform = Transform3D(b, -(b * FIST_CENTER))
 
 
-## Basis presets. Punch: palm down, knuckles forward. Thumb up: a pistol or sword grip with the
-## palm facing inward. Palm up: the support hand under a blaster's fore-grip (left hand).
+## Basis presets. Punch: rolled inward and tipped up so the curled fingers show. Thumb up: a
+## pistol or sword grip with the palm facing inward. Palm up: the support hand (left).
 func punch_basis() -> Basis:
-	# Rolled inward (thumb side up) and tipped up a little, so you see the curled fingers.
 	return Basis(Vector3(0, 0, 1), -0.75 * side) * Basis(Vector3(1, 0, 0), 0.15)
 
 
@@ -322,7 +359,6 @@ func thumb_up_basis() -> Basis:
 
 
 static func palm_up_basis() -> Basis:
-	# Forearm runs back, down and to the left; the palm faces up under the fore-grip.
 	var z := Vector3(-0.55, -0.4, 0.75).normalized()
 	var y := Vector3(0, -1, 0)
 	y = (y - z * y.dot(z)).normalized()
@@ -345,7 +381,7 @@ func set_pose(p: String, instant := false) -> void:
 	_target = POSES[p].duplicate(true)
 	if instant:
 		_cur = POSES[p].duplicate(true)
-		_apply(0.0)
+		_apply(_t)
 
 
 ## Trigger pull: the index finger curls in for a moment.
@@ -360,7 +396,8 @@ func pulse() -> void:
 
 ## Total curl of finger i (0 = index) across its three joints, for tests.
 func finger_curl(i: int) -> float:
-	return -(fingers[i][0].rotation.x + fingers[i][1].rotation.x + fingers[i][2].rotation.x)
+	var a: Array = _applied[i]
+	return a[0] + a[1] + a[2]
 
 
 func _process(delta: float) -> void:
@@ -377,6 +414,12 @@ func _process(delta: float) -> void:
 	_apply(_t)
 
 
+func _bone(b: int, curl: float, spread := 0.0) -> void:
+	var rb: Basis = (_rest_local[b] as Transform3D).basis
+	var r := rb * Basis(Vector3.UP, spread) * Basis(Vector3.RIGHT, -curl)
+	skeleton.set_bone_pose_rotation(b, r.get_rotation_quaternion())
+
+
 func _apply(t: float) -> void:
 	for i in fingers.size():
 		var c: Array = _cur["f"][i]
@@ -384,10 +427,14 @@ func _apply(t: float) -> void:
 		var extra := pulse_t * 0.12
 		if i == 0:
 			extra += squeeze_t * 0.55
-		fingers[i][0].rotation = Vector3(-(c[0] + idle + extra), _cur["spread"] * SPREAD_K[i] * side, 0)
-		fingers[i][1].rotation.x = -(c[1] + idle * 0.6 + extra)
-		fingers[i][2].rotation.x = -(c[2] + extra * 0.6)
+		var a0: float = c[0] + idle + extra
+		var a1: float = c[1] + idle * 0.6 + extra
+		var a2: float = c[2] + extra * 0.6
+		_bone(fingers[i][0], a0, _cur["spread"] * SPREAD_K[i] * side)
+		_bone(fingers[i][1], a1)
+		_bone(fingers[i][2], a2)
+		_applied[i] = [a0, a1, a2]
 	var tc: Array = _cur["thumb"]
-	thumb[0].rotation.x = -(tc[0] + pulse_t * 0.08)
-	thumb[1].rotation.x = -tc[1]
-	thumb[2].rotation.x = -tc[2]
+	_bone(thumb[0], tc[0] + pulse_t * 0.08)
+	_bone(thumb[1], tc[1])
+	_bone(thumb[2], tc[2])

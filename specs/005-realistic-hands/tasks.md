@@ -40,3 +40,32 @@ description: "Task list for Realistic First-Person Hands"
 - **Smoke checks** cover 30 jointed segments, 10 nails, every melee weapon, ≥ 2.5 rad of fist vs
   open curl (measured 3.87), and the trigger squeeze returning within 0.3 s. Blasters are
   exercised by the Wave Mode block. All green on 3 consecutive runs.
+
+## Follow-up: "Extremely detailed" pass
+
+The user found the capsule hands still cartoonish, so the geometry and materials were rebuilt.
+
+- [X] T010 [US1] scripts/hand_mesh.gd: the hand as a signed distance field, meshed into one skin
+  - **Shape:** tapered, flattened round-cone phalanges, joint bulges, metacarpal knuckles, dorsal
+    tendons, a vein network, thenar/hypothenar and palmar pads, fingertip pads, carved nail beds
+    and the wrist. Smooth-min blending forms the finger webbing.
+  - **Mesh:** a narrow-band surface-nets mesher (1.9 mm cells), projected onto the exact surface,
+    with gradient normals: about 20.6k vertices per hand.
+- [X] T011 [US1] Skin weights (inverse distance⁶ to bone segments, top 4) and per-vertex paint:
+  palm tone, knuckle redness, fingertip pink, vein tint, palmar flexion creases, mottling.
+- [X] T012 [US1] scripts/hand.gd rebuilt on a Skeleton3D + Skin
+  - left hand mirrored as M·B·M;
+  - curved nails with lunula and free edge, on BoneAttachment3D;
+  - a lofted folded sleeve, rolled cuff and a modeled watch.
+- [X] T013 Background-thread generation at launch (`GameState._ready`), with a disk cache
+  `user://hand_mesh_vN.res` (versioned).
+- [X] T014 Smoke check: one continuous skinned mesh per hand, 16 binds, more than 10k vertices.
+
+**Notes**
+
+- **Generation speed.** The first build took 12.9 s. Band-only meshing, packed primitive arrays
+  and one-step projection brought it to about 3.3 s, which now runs off the main thread, then
+  comes from the cache.
+- **Normal map dropped.** The skin pore normal map read as fur, because planar UVs stretch on the
+  sides of the fingers. Vertex colors needed `vertex_color_is_srgb`, and a deeper palette, since
+  the bright scenes washed out light tones.

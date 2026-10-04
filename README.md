@@ -160,11 +160,11 @@ Everything is still generated in code, with no imported assets:
 - **Faces with expressions.** Characters have eyes with pupils, noses, mouths and cheeks. Adults scowl when they spot you, and scammed kids look sad and cry real tears. Kids get varied hairstyles (bowl, spiky, bun, ponytail) or caps.
 - **Living levels.** Wind-swaying grass, round trees and bushes, drifting clouds, lamp posts, posters, balloons and streamers.
 - **Effects.** Hit sparks, dizzy stars over stunned and KO'd adults, gold sparkles around the whale, dust motes indoors, and pulsing extract beams.
-- **Realistic first-person hands** (DOOM-style): jointed fingers with knuckles and nails, an opposable thumb, fingerless tactical gloves with armored knuckles, sleeved forearms and a watch. Fingers grip each weapon for real: fists clench on every punch, hands wrap the sword handle and blaster grips, the trigger finger squeezes on every shot, and the hand opens on a pocket-sand throw.
+- **Realistic first-person hands**: each hand is one continuous, anatomically shaped skin mesh generated in code (a signed distance field of bones, knuckles, tendons, veins, palm pads and finger webbing, meshed with surface nets) and skinned to a 16-bone skeleton, so fingers bend like real skin. Skin tone is painted per vertex (redder knuckles, lighter palms, pink fingertips, flexion creases, faint veins), with glossy curved nails, a folded cloth sleeve and a digital watch. Fingers grip each weapon for real: fists clench on every punch, hands wrap the sword handle and blaster grips, the trigger finger squeezes on every shot, and the hand opens on a pocket-sand throw. The mesh is built on a background thread at launch and cached in `user://`.
 
-  | Fists | Blaster grip |
+  | Open hand | Pistol grip |
   | --- | --- |
-  | ![Gloved fists](screenshot_hands.png) | ![Hands on the Paintball Rifle](screenshot_hands_blaster.png) |
+  | ![A realistic open hand](screenshot_hands.png) | ![Hands on the Foam Dart Pistol](screenshot_hands_blaster.png) |
 - **Detailed levels** built from a prop kit of 26 kinds: chain-link fences, a school with a roof, windows, doors and a flagpole, picnic tables, cars and a minivan, a school bus, a bus shelter, vending machines, arcade cabinets, storefronts with glass and awnings, a mall skylight, ceiling lights, gym mats, bleachers and more.
 - **Graphics quality** (Settings): **High** or **Low (faster)**. Low turns off outlines, shadows, ambient occlusion, floor reflections and light shafts, cuts grass to 20% and particles to 40%, and keeps fewer paint splats. It applies from the next raid and is saved.
 
@@ -217,7 +217,7 @@ There are also some optional skills: `/speckit-clarify`, `/speckit-analyze`, `/s
 - `scripts/waves.gd`: the Wave Mode director. `scripts/gunplay.gd`: blasters (ammo, firing, reload, aim). `scripts/rocket.gd`: the rubber chicken. `scripts/thrown.gd`: fastballs and water balloons. `scripts/pickup.gd`: ammo and juice boxes. `scripts/spectator.gd`: kids in the bleachers.
 - `scripts/rig.gd`: jointed humanoid with procedural walk/run cycles and blended action poses.
 - `scripts/player.gd`: first-person controller with Quake-style movement (air strafe, bhop, slide), combos, heavies, block/parry, pocket sand and camera feel.
-- `scripts/viewmodel.gd`: first-person arms, weapons and blasters, attack animations, sway and sword trails. `scripts/hand.gd`: the realistic procedural hands and their finger poses.
+- `scripts/viewmodel.gd`: first-person arms, weapons and blasters, attack animations, sway and sword trails. `scripts/hand.gd`: the realistic hands (skeleton, nails, sleeve, finger poses). `scripts/hand_mesh.gd`: the SDF hand mesh generator.
 - `scripts/parent.gd`, `scripts/kid.gd`: AI state machines.
 - `scripts/hud.gd`: in-raid UI. `scripts/hub.gd`: title screen and hideout.
 - `scripts/ui/`: shared theme and widgets (compass, crosshair, trading card renderer, settings).
