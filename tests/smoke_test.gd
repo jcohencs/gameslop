@@ -677,6 +677,7 @@ func _ready() -> void:
 	gs.graphics_quality = "high"
 	gs.save_settings()
 
+	await _test_hands()
 	await _test_waves()
 
 	gs.cash = gs.WIN_COST
@@ -687,6 +688,56 @@ func _ready() -> void:
 	await idle(10)
 	print("\nSMOKE TEST: %s (%d failures)" % ["OK" if failures == 0 else "FAILED", failures])
 	get_tree().quit(1 if failures else 0)
+
+
+# --- Realistic hands (specs/005) -------------------------------------------------
+
+func _test_hands() -> void:
+	var gs := GameState
+	gs.cash = 9000
+	for id in gs.WEAPON_ORDER:
+		main.hub_buy_weapon(id)
+	main.start_raid("playground")
+	await frames(3)
+	var vm = main.player.viewmodel
+	var segs := 0
+	for m in [vm.model_l, vm.model_r]:
+		segs += m.fingers.size() * 3 + m.thumb.size()
+	check(segs == 30, "hands have 2 x 5 digits x 3 jointed segments (%d)" % segs)
+	var nails := 0
+	for m in [vm.model_l, vm.model_r]:
+		for mi in m.find_children("*", "MeshInstance3D", true, false):
+			if mi.material_override == m.nail_mat():
+				nails += 1
+	check(nails == 10, "ten fingernails")
+	var all_ok := true
+	for id in gs.WEAPON_ORDER:
+		gs.equip_weapon(id)
+		await frames(2)
+		all_ok = all_ok and is_instance_valid(vm.model_r) and vm.model_r.visible
+	check(all_ok, "every melee weapon equips with the realistic hands")
+	gs.equip_weapon("knuckles")
+	vm.model_r.set_pose("fist", true)
+	var fist: Array = []
+	for i in 4:
+		fist.append(vm.model_r.finger_curl(i))
+	vm.model_r.set_pose("open", true)
+	var curl_gap := 99.0
+	for i in 4:
+		curl_gap = minf(curl_gap, fist[i] - vm.model_r.finger_curl(i))
+	check(curl_gap >= 2.5, "fist vs open: every finger curls >= 2.5 rad (%.2f)" % curl_gap)
+	vm.model_r.set_pose("trigger", true)
+	await frames(2)
+	var rest: float = vm.model_r.finger_curl(0)
+	vm.model_r.squeeze()
+	await frames(1)
+	var pulled: float = vm.model_r.finger_curl(0)
+	await wait(0.3)
+	var back: float = vm.model_r.finger_curl(0)
+	check(pulled > rest + 0.2 and absf(back - rest) < 0.08, "trigger finger squeezes (%.2f -> %.2f) and returns (%.2f)" % [rest, pulled, back])
+	main._end_raid(false, "test")
+	await idle(3)
+	gs.cash = 9000
 
 
 # --- Wave Mode (specs/004) -----------------------------------------------------

@@ -2,15 +2,18 @@ extends Node3D
 ## First-person arms + weapon. Keyframed attack animations (jabs, hooks, slashes,
 ## charged heavies), guard, weapon sway that follows the mouse, bob and landing dip.
 
-const IDLE_R := [Vector3(0.22, -0.25, -0.5), Vector3(0.1, 0.12, -0.05)]
-const IDLE_L := [Vector3(-0.22, -0.25, -0.5), Vector3(0.1, -0.12, 0.05)]
-const SWORD_IDLE := [Vector3(0.26, -0.3, -0.4), Vector3(0.25, 0.05, -0.15)]
+const HandScript := preload("res://scripts/hand.gd")
+const IDLE_R := [Vector3(0.19, -0.2, -0.42), Vector3(0.1, 0.12, -0.05)]
+const IDLE_L := [Vector3(-0.19, -0.2, -0.42), Vector3(0.1, -0.12, 0.05)]
+const SWORD_IDLE := [Vector3(0.22, -0.24, -0.4), Vector3(0.25, 0.05, -0.15)]
 
 var sway: Node3D
 var arm_l: Node3D
 var arm_r: Node3D
 var hand_l: Node3D
 var hand_r: Node3D
+var model_l: Node3D        # realistic hands (specs/005), persistent across weapons
+var model_r: Node3D
 var sleeve_mat: StandardMaterial3D
 var skin_mat: StandardMaterial3D
 var fist_mat: StandardMaterial3D
@@ -39,6 +42,14 @@ var _kick := Vector3.ZERO
 # Wave Mode blasters (specs/004).
 const GUN_HIP := Vector3(0.18, -0.2, -0.46)
 const GUN_AIM := Vector3(0.0, -0.125, -0.34)
+## Per blaster, in gun space: [right-hand grip (fist center), left-hand support point].
+const GRIPS := {
+	"dart": [Vector3(0, -0.07, 0.025), Vector3(0.004, -0.115, 0.03)],
+	"soaker": [Vector3(0, -0.075, 0.045), Vector3(0, -0.06, -0.2)],
+	"paint": [Vector3(0, -0.08, 0.055), Vector3(0, -0.06, -0.2)],
+	"bubble": [Vector3(0, -0.08, 0.065), Vector3(0, -0.045, -0.15)],
+	"chicken": [Vector3(0, -0.085, 0.025), Vector3(0, -0.055, -0.2)],
+}
 var gun: Node3D = null
 var muzzle: Node3D = null
 var blaster_id := ""
@@ -58,6 +69,14 @@ func _ready() -> void:
 	arm_r = _arm()
 	hand_l = arm_l.get_child(-1)
 	hand_r = arm_r.get_child(-1)
+	model_l = HandScript.new()
+	model_l.side = -1.0
+	model_l.set_meta("persist", true)
+	hand_l.add_child(model_l)
+	model_r = HandScript.new()
+	model_r.side = 1.0
+	model_r.set_meta("persist", true)
+	hand_r.add_child(model_r)
 	_set_pose(arm_l, IDLE_L)
 	_set_pose(arm_r, IDLE_R)
 	trail_mat = Shapes.mat(Color(1, 1, 1, 0.35), 1.5)
@@ -66,31 +85,10 @@ func _ready() -> void:
 	trail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 
+## An arm is just a pivot now: the hand model (specs/005) carries the hand, wrist and sleeve.
 func _arm() -> Node3D:
 	var arm := Node3D.new()
 	sway.add_child(arm)
-	# Forearm extends from behind the camera (+Z) to the hand at the origin.
-	var fore := MeshInstance3D.new()
-	var cm := CapsuleMesh.new()
-	cm.radius = 0.032
-	cm.height = 0.42
-	fore.mesh = cm
-	fore.material_override = sleeve_mat
-	fore.rotation.x = PI / 2
-	fore.position = Vector3(0, 0, 0.21)
-	_no_shadow(fore)
-	arm.add_child(fore)
-	var cuff := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.036
-	cyl.bottom_radius = 0.036
-	cyl.height = 0.04
-	cuff.mesh = cyl
-	cuff.material_override = Shapes.mat(Color(0.95, 0.75, 0.2))
-	cuff.rotation.x = PI / 2
-	cuff.position = Vector3(0, 0, 0.045)
-	_no_shadow(cuff)
-	arm.add_child(cuff)
 	var hand := Node3D.new()
 	arm.add_child(hand)
 	return arm
@@ -102,7 +100,18 @@ func _no_shadow(mi: GeometryInstance3D) -> void:
 
 func _clear(n: Node) -> void:
 	for c in n.get_children():
-		c.queue_free()
+		if not c.has_meta("persist"):
+			c.queue_free()
+
+
+## Grip orientation + finger pose for both hands.
+func _hands(pose_l: String, basis_l: Basis, pose_r: String, basis_r: Basis) -> void:
+	for m in [model_l, model_r]:
+		m.clear_accessories()
+	model_l.orient(basis_l)
+	model_r.orient(basis_r)
+	model_l.set_pose(pose_l)
+	model_r.set_pose(pose_r)
 
 
 func set_weapon(id: String) -> void:
@@ -118,21 +127,21 @@ func set_weapon(id: String) -> void:
 		if id in ["brass", "gauntlet"]:
 			fist_mat.metallic = 0.85
 			fist_mat.roughness = 0.25
+		_hands("fist", model_l.punch_basis(), "fist", model_r.punch_basis())
 		for h in [hand_l, hand_r]:
 			_make_fist(h, id, w)
 	elif kind == "sand":
-		_make_fist(hand_l, "knuckles", GameState.WEAPONS["knuckles"])
-		_make_fist(hand_r, "knuckles", GameState.WEAPONS["knuckles"])
-		# A little drawstring pouch of sand.
+		_hands("fist", model_l.punch_basis(), "fist", model_r.punch_basis())
+		# A little drawstring pouch of sand, held in the right fist.
 		var pouch := MeshInstance3D.new()
 		var pm := SphereMesh.new()
 		pm.radius = 0.04
 		pm.height = 0.07
 		pouch.mesh = pm
 		pouch.material_override = Shapes.mat(Color(0.55, 0.4, 0.25))
-		pouch.position = Vector3(0, 0.03, -0.02)
+		pouch.position = Vector3(0, -0.012, 0.0)
 		_no_shadow(pouch)
-		hand_r.add_child(pouch)
+		model_r.palm_anchor.add_child(pouch)
 		var tie := MeshInstance3D.new()
 		var tm := CylinderMesh.new()
 		tm.top_radius = 0.008
@@ -140,16 +149,16 @@ func set_weapon(id: String) -> void:
 		tm.height = 0.03
 		tie.mesh = tm
 		tie.material_override = Shapes.mat(Color(0.8, 0.2, 0.2))
-		tie.position = Vector3(0, 0.075, -0.02)
+		tie.position = Vector3(0, 0.03, 0.0)
 		_no_shadow(tie)
-		hand_r.add_child(tie)
+		model_r.palm_anchor.add_child(tie)
 	else:
-		_make_fist(hand_l, "knuckles", GameState.WEAPONS["knuckles"])
-		_make_fist(hand_r, "knuckles", GameState.WEAPONS["knuckles"])
+		# Sword: the right hand wraps the handle thumb-up; the left makes a guard fist.
+		_hands("fist", model_l.punch_basis(), "grip", model_r.thumb_up_basis())
 		weapon_root = Node3D.new()
 		hand_r.add_child(weapon_root)
-		# Grip angled up and forward.
-		weapon_root.rotation = Vector3(-1.1, 0, 0)
+		# Grip angled up and forward (the fist wraps an upright handle).
+		weapon_root.rotation = Vector3(-0.85, 0, 0)
 		var blade_len: float = w["blade"]
 		var foam: bool = id == "foam"
 		var handle := MeshInstance3D.new()
@@ -184,37 +193,60 @@ func set_weapon(id: String) -> void:
 	_return_to_idle(0.15)
 
 
+## Fist weapon accessories on the realistic hands (the hands themselves are persistent).
 func _make_fist(hand: Node3D, id: String, w: Dictionary) -> void:
-	var size: float = w.get("size", 0.05) * 0.68
-	var fist := MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = size
-	sm.height = size * 2.0
-	fist.mesh = sm
-	fist.scale = Vector3(1.0, 0.9, 1.15)
-	fist.material_override = fist_mat if kind == "fist" else skin_mat
-	_no_shadow(fist)
-	hand.add_child(fist)
-	if id == "brass":
-		var bar := MeshInstance3D.new()
-		var bm := BoxMesh.new()
-		bm.size = Vector3(size * 2.2, size * 0.5, size * 0.6)
-		bar.mesh = bm
-		bar.material_override = fist_mat
-		bar.position = Vector3(0, size * 0.25, -size * 0.95)
-		_no_shadow(bar)
-		hand.add_child(bar)
-	elif id == "gauntlet":
-		for i in 3:
-			var gem := MeshInstance3D.new()
-			var gsm := SphereMesh.new()
-			gsm.radius = size * 0.22
-			gsm.height = size * 0.44
-			gem.mesh = gsm
-			gem.material_override = Shapes.mat(Color.from_hsv(i / 3.0, 0.9, 1.0), 3.0)
-			gem.position = Vector3((i - 1) * size * 0.6, size * 0.75, -size * 0.3)
-			_no_shadow(gem)
-			hand.add_child(gem)
+	var m: Node3D = model_r if hand == hand_r else model_l
+	match id:
+		"brass":
+			# A brass bar across the front of the curled fingers, with finger rings.
+			var bar := MeshInstance3D.new()
+			bar.mesh = _bx(0.1, 0.036, 0.02)
+			bar.material_override = fist_mat
+			bar.position = Vector3(0, -0.026, -0.018)
+			_no_shadow(bar)
+			m.knuckle_anchor.add_child(bar)
+			for i in 4:
+				var ring := MeshInstance3D.new()
+				var tm := TorusMesh.new()
+				tm.inner_radius = 0.011
+				tm.outer_radius = 0.015
+				ring.mesh = tm
+				ring.material_override = fist_mat
+				ring.position = Vector3((-0.026 + i * 0.0177) * m.side, -0.012, -0.012)
+				ring.rotation.x = PI / 2
+				_no_shadow(ring)
+				m.knuckle_anchor.add_child(ring)
+		"gauntlet":
+			# Retro power glove: an armored shell over the back of the hand, glowing gems.
+			var shell := MeshInstance3D.new()
+			shell.mesh = _bx(0.095, 0.028, 0.1)
+			shell.material_override = fist_mat
+			shell.position = Vector3(0, 0.022, 0.05)
+			_no_shadow(shell)
+			m.knuckle_anchor.add_child(shell)
+			for i in 3:
+				var gem := MeshInstance3D.new()
+				gem.mesh = _sph(0.008)
+				gem.material_override = Shapes.mat(Color.from_hsv(i / 3.0, 0.9, 1.0), 3.0)
+				gem.position = Vector3((i - 1) * 0.024, 0.038, 0.03)
+				_no_shadow(gem)
+				m.knuckle_anchor.add_child(gem)
+		"gloves":
+			# Boxing gloves swallow the whole fist.
+			var glove := MeshInstance3D.new()
+			glove.mesh = _sph(0.066)
+			glove.material_override = fist_mat
+			glove.position = Vector3(0, -0.012, 0.012)
+			glove.scale = Vector3(1.05, 0.95, 1.25)
+			_no_shadow(glove)
+			m.knuckle_anchor.add_child(glove)
+			var cuff := MeshInstance3D.new()
+			cuff.mesh = _cyl(0.05, 0.05, 0.06)
+			cuff.material_override = Shapes.mat(Color(0.95, 0.95, 0.95))
+			cuff.position = Vector3(0, -0.01, 0.1)
+			cuff.rotation.x = PI / 2
+			_no_shadow(cuff)
+			m.knuckle_anchor.add_child(cuff)
 
 
 # --- Blasters (Wave Mode) ----------------------------------------------------
@@ -239,8 +271,7 @@ func set_blaster(id: String) -> void:
 	for tw in [_tw_l, _tw_r]:
 		if tw and tw.is_valid():
 			tw.kill()
-	_make_fist(hand_l, "knuckles", GameState.WEAPONS["knuckles"])
-	_make_fist(hand_r, "knuckles", GameState.WEAPONS["knuckles"])
+	_hands("support", HandScript.palm_up_basis(), "trigger", model_r.thumb_up_basis())
 	gun = Node3D.new()
 	gun.position = GUN_HIP
 	gun.scale = Vector3.ONE * (0.8 if id == "dart" else 0.9)
@@ -337,6 +368,7 @@ func muzzle_position() -> Vector3:
 
 func fire_kick(strength: float) -> void:
 	_gun_kick = minf(_gun_kick + strength * 0.5, 1.0)
+	model_r.squeeze()
 
 
 func set_aim(k: float) -> void:
@@ -358,14 +390,19 @@ func _tick_gun(delta: float) -> void:
 	var pos := GUN_HIP.lerp(GUN_AIM, _aim) + Vector3(0, 0.01, 0.07) * _gun_kick + Vector3(0, -0.05, 0.03) * p
 	gun.position = pos
 	gun.rotation = Vector3(0.18 * _gun_kick - 0.6 * p, 0.0, 0.5 * p)
-	# Hands follow the blaster: right on the grip, left on the fore-grip (or the tank mid-reload).
-	arm_r.position = pos + Vector3(0.0, -0.09, 0.07)
-	arm_r.rotation = Vector3(0.35 + gun.rotation.x * 0.5, 0.1, gun.rotation.z * 0.5)
-	# The pistol is cupped from below; long blasters are held by the fore-grip.
-	var grip := Vector3(-0.03, -0.11, 0.03) if blaster_id == "dart" else Vector3(-0.045, -0.06, -0.21)
-	var fore := grip.lerp(Vector3(-0.06, -0.14, -0.02), p)
-	arm_l.position = pos + fore
-	arm_l.rotation = Vector3(0.45, -0.85, 0.2)
+	# Hands follow the blaster: the right fist on the grip (index on the trigger), the left hand
+	# under the fore-grip (or, for the pistol, cupping the right hand), dropping to the tank
+	# mid-reload.
+	var g: Array = GRIPS.get(blaster_id, GRIPS["dart"])
+	var gb := gun.transform.basis
+	arm_r.position = pos + gb * (g[0] as Vector3)
+	arm_r.rotation = gun.rotation + Vector3(0.3, 0, 0)
+	var support: Vector3 = (gb * (g[1] as Vector3)).lerp(Vector3(-0.05, -0.12, 0.05), p)
+	arm_l.position = pos + support
+	arm_l.rotation = gun.rotation
+	var want := "relaxed" if p > 0.2 else "support"
+	if model_l.pose != want:
+		model_l.set_pose(want)
 
 
 # --- Pose helpers ------------------------------------------------------------
@@ -424,6 +461,9 @@ func _return_to_idle(t := 0.12) -> void:
 ## Plays an attack. Returns the delay (s) until the impact frame.
 func attack(combo: int, heavy: bool) -> float:
 	_charging = false
+	model_r.pulse()
+	if combo == 1 and kind == "fist":
+		model_l.pulse()
 	Sfx.play("whoosh", 0.12, -4.0)
 	if kind == "sword":
 		return _sword_attack(combo, heavy)
@@ -500,10 +540,17 @@ func set_sliding(on: bool) -> void:
 
 ## Fling a handful of sand: right arm whips forward and opens.
 func throw_sand() -> float:
+	model_r.set_pose("throw")
+	get_tree().create_timer(0.3, false).timeout.connect(_close_after_throw)
 	_tween_arm(true, [[0.08, Vector3(0.3, -0.15, -0.15), Vector3(-0.6, 0.3, 0.3)],
 		[0.08, Vector3(0.05, -0.05, -0.75), Vector3(0.6, -0.2, -0.3)],
 		[0.25, IDLE_R[0], IDLE_R[1]]])
 	return 0.16
+
+
+func _close_after_throw() -> void:
+	if is_instance_valid(model_r):
+		model_r.set_pose("fist" if kind in ["fist", "sand"] else model_r.pose)
 
 
 func flinch() -> void:
