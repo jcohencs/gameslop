@@ -1,3 +1,5 @@
+> Also in this repo: [Parse Check](wow-logs-checker/), a WoW logs checker that compares a pull against 99th-percentile players of your spec.
+
 # Card Shark: Playground Hustle
 
 A goofy low-poly 3D Godot 4 game. You're a shady card dealer working a school playground: "trade" kids out of their best trading cards, flip them at your Shady Van, buy upgrades and guns, and fight off the angry parents who show up when a kid cries.
