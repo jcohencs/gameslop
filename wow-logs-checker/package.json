@@ -1,0 +1,13 @@
+{
+  "name": "wow-logs-checker",
+  "version": "0.1.0",
+  "description": "Compare your Warcraft Logs performance against 99th-percentile players of your spec",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "WCL_DEMO=1 node server.js",
+    "test": "node --test test/*.test.js"
+  }
+}

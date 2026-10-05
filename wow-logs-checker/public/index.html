@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parse Check</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="wrap">
+    <header class="masthead">
+      <h1>Parse Check</h1>
+      <p class="sub">Compare one boss pull against the 99th percentile of your class and spec on Warcraft Logs.</p>
+    </header>
+
+    <div id="demo-banner" class="banner" hidden>
+      Demo mode: showing generated data. Set <code>WCL_CLIENT_ID</code> and <code>WCL_CLIENT_SECRET</code> to check real logs.
+    </div>
+
+    <form id="load-form" class="load">
+      <label for="report-input" class="visually-hidden">Report URL or code</label>
+      <input id="report-input" type="text" autocomplete="off" spellcheck="false"
+        placeholder="https://www.warcraftlogs.com/reports/AbC123xYz#fight=3&source=1">
+      <button type="submit">Load log</button>
+    </form>
+
+    <p id="status" class="status" role="status"></p>
+
+    <section id="picker" hidden>
+      <h2 class="step">1. Pick a pull</h2>
+      <div id="fights" class="chips"></div>
+      <h2 class="step">2. Pick a player</h2>
+      <div id="players" class="chips"></div>
+    </section>
+
+    <section id="result" hidden></section>
+  </main>
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
